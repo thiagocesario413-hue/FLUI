@@ -1,0 +1,19 @@
+{
+  "name": "FLUI - Planejamento financeiro",
+  "short_name": "FLUI",
+  "description": "Planejamento financeiro pessoal que funciona 100% no seu aparelho, sem conta e sem internet.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "./index.html",
+  "display": "standalone",
+  "background_color": "#04110C",
+  "theme_color": "#04110C",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
