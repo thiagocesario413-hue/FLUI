@@ -564,6 +564,10 @@ html{touch-action:manipulation;}
 .dica-btn.pq{width:18px;height:18px;margin:-2px 0 0 2px;}
 .dica-btn.pq svg{width:14px;height:14px;}
 .rs-bloco > .dica-txt{margin:8px 0 0;}
+/* explicacao aberta entre duas linhas de uma lista (1.10.0): ocupa a largura da lista, sem cantos */
+.ledger > .dica-txt{margin:0;border-radius:0;}
+/* caixas da revisao manual da fatura (1.10.0) na cor do app */
+.rev-check{accent-color:var(--color-primary);}
 .dica-txt b{color:var(--color-ink);font-weight:700;}
 .dica-btn:hover,.dica-btn[aria-expanded="true"]{color:var(--color-primary);}
 .dica-btn:focus-visible{outline:2px solid var(--color-primary);outline-offset:1px;}
@@ -3031,7 +3035,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.9.3';
+var APP_VERSION='1.10.0';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
@@ -4300,13 +4304,21 @@ function renderCartao(){
   if(!lista.length){
     html+='<div class="ledger"><div class="empty-state"><b>Nenhuma fatura em '+monthLabel(currentMonth)+'</b>Importe o PDF da fatura do cartão ou lance o valor da fatura à mão.</div></div>';
   }
+  /* 1.10.0: com mais de uma fatura no mes, agrupa por vencimento (cabecalho com a data e o total daquele dia) */
+  var vencAnterior=null, porVenc=lista.length>1 ? totaisPorVencimento(lista) : [];
+  if(lista.length>1) html+='<div class="cr-info" style="margin:0 0 4px">'+lista.length+' faturas neste mês, total <b class="num">'+formatBRL(roundCents(lista.reduce(function(s,f){ return s+(Number(f.total)||0); },0)))+'</b>.</div>';
   lista.forEach(function(f){
+    var colado=false;   /* a fatura logo abaixo do cabecalho do vencimento fica junto dele */
+    if(lista.length>1 && f.vencimento!==vencAnterior){ colado=true;
+      vencAnterior=f.vencimento; var gv=porVenc.filter(function(x){ return x.venc===f.vencimento; })[0];
+      html+='<div class="section-title" style="display:flex;justify-content:space-between;gap:8px;margin:22px 0 0"><span>Vence em '+esc(formatDataBR(f.vencimento))+'</span><span class="num">'+formatBRL(gv?gv.total:f.total)+'</span></div>';
+    }
     var aberto=!!faturasExpandidas[f.id], temCompras=!f.manual && (f.portadores||[]).length>0;
-    html+='<div class="card section-gap">';
+    html+=colado?'<div class="card" style="margin-top:8px">':'<div class="card section-gap">';
     html+='<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">';
     html+='<div style="min-width:0"><div class="ledger-title" style="font-size:16px">'+esc(tituloFatura(f))+'</div><div class="ledger-sub">Vence em '+esc(formatDataBR(f.vencimento))+(f.manual?' · lançada à mão':'')+'</div></div>';
     html+='<div class="num" style="font-size:19px;font-weight:600;white-space:nowrap">'+formatBRL(f.total)+'</div></div>';
-    if(numFinito(f.proximaFatura) && f.proximaFatura>0) html+='<div style="margin-top:6px;font-size:12px;color:var(--color-ink-soft)">Previsão da próxima fatura (parcelas já conhecidas): <b class="num">'+formatBRL(f.proximaFatura)+'</b></div>';
+    if(numFinito(f.proximaFatura) && f.proximaFatura>0) html+='<div style="margin-top:6px;font-size:12px;color:var(--color-ink-soft)"><span data-dica-item="cartao-previsao">Previsão da próxima fatura (parcelas já conhecidas)</span>: <b class="num">'+formatBRL(f.proximaFatura)+'</b></div>';
     if(temCompras) html+='<div class="btn-row" style="margin-top:12px"><button class="btn secondary" data-fatura-resumo="'+esc(f.id)+'" style="margin-top:0">Resumo</button><button class="btn secondary" data-fatura-toggle="'+esc(f.id)+'" style="margin-top:0">'+(aberto?'Ocultar compras':'Ver compras')+'</button></div>';
     if(!fechada) html+='<button class="link-btn danger" data-fatura-excluir="'+esc(f.id)+'" style="margin-top:10px;display:block">Excluir fatura</button>';
     if(temCompras && aberto) html+=htmlComprasFatura(f);
@@ -4328,20 +4340,20 @@ function renderCartao(){
   ligarAnaliseCartao();
 }
 function htmlComprasFatura(f){
-  var h=htmlCampoBusca('buscaCompras_'+f.id,'Buscar compra (nome, data ou valor)',buscaCompras[f.id]||'')+'<div class="busca-info" data-busca-info="'+esc(f.id)+'" style="display:none"></div>';
+  var h='<div class="ledger-sub" style="margin-top:14px"><span data-dica-item="cartao-compras">Compras desta fatura</span></div>'+htmlCampoBusca('buscaCompras_'+f.id,'Buscar compra (nome, data ou valor)',buscaCompras[f.id]||'')+'<div class="busca-info" data-busca-info="'+esc(f.id)+'" style="display:none"></div>';
   (f.portadores||[]).forEach(function(p,pi){
     if((p.compras||[]).length){
-      h+='<div class="bloco-compras"><div class="section-title section-gap" style="display:flex;justify-content:space-between;gap:8px"><span>'+esc(p.nome)+'</span><span class="num">'+formatBRL(p.subtotal)+'</span></div>';
+      h+='<div class="bloco-compras"><div class="section-title section-gap" data-dica-ancora="1" style="display:flex;justify-content:space-between;gap:8px"><span'+(p.nome==='Produtos e serviços'?' data-dica-item="cartao-servicos"':'')+'>'+esc(p.nome)+'</span><span class="num">'+formatBRL(p.subtotal)+'</span></div>';
       h+='<div class="ledger">'+p.compras.map(function(c,i){ return linhaCompraFatura(c, f.id+'|'+pi+'|c|'+i, f); }).join('')+'</div></div>';
     }
     if((p.internacionais||[]).length){
-      h+='<div class="bloco-compras"><div class="section-title section-gap" style="display:flex;justify-content:space-between;gap:8px"><span>'+esc(p.nome)+' · internacionais</span><span class="num">'+formatBRL(p.subtotalInter)+'</span></div>';
+      h+='<div class="bloco-compras"><div class="section-title section-gap" data-dica-ancora="1" style="display:flex;justify-content:space-between;gap:8px"><span data-dica-item="cartao-inter">'+esc(p.nome)+' · internacionais</span><span class="num">'+formatBRL(p.subtotalInter)+'</span></div>';
       h+='<div class="ledger">'+p.internacionais.map(function(c,i){ return linhaCompraFatura(c, f.id+'|'+pi+'|i|'+i, f); }).join('')+(p.iof?'<div class="ledger-row" data-sem-busca="1"><div class="ledger-main"><div class="ledger-title">IOF das compras internacionais</div></div><div class="ledger-value num">'+formatBRL(p.iof)+'</div></div>':'')+'</div></div>';
     }
   });
   if(f.saldoAnterior || f.encargos){ h+='<div class="ledger section-gap" data-saldo-anterior="1">';
-    if(f.saldoAnterior) h+='<div class="ledger-row"><div class="ledger-main"><div class="ledger-title">Saldo da fatura anterior</div><div class="ledger-sub">Valor que ficou da fatura passada</div></div><div class="ledger-value num">'+formatBRL(f.saldoAnterior)+'</div></div>';
-    if(f.encargos) h+='<div class="ledger-row"><div class="ledger-main"><div class="ledger-title">Encargos do mês</div><div class="ledger-sub">Financiamento e moratório, cobrados pelo banco</div></div><div class="ledger-value num">'+formatBRL(f.encargos)+'</div></div>';
+    if(f.saldoAnterior) h+='<div class="ledger-row"><div class="ledger-main"><div class="ledger-title"><span data-dica-item="cartao-saldo-anterior">Saldo da fatura anterior</span></div><div class="ledger-sub">Valor que ficou da fatura passada</div></div><div class="ledger-value num">'+formatBRL(f.saldoAnterior)+'</div></div>';
+    if(f.encargos) h+='<div class="ledger-row"><div class="ledger-main"><div class="ledger-title"><span data-dica-item="cartao-encargos">Encargos do mês</span></div><div class="ledger-sub">Financiamento e moratório, cobrados pelo banco</div></div><div class="ledger-value num">'+formatBRL(f.encargos)+'</div></div>';
     h+='</div>'; }
   return h;
 }
@@ -4535,6 +4547,76 @@ function mostrarDiagnosticoFatura(sh, r){
   cx.querySelector('#btnDiagSalvar').addEventListener('click', function(){ salvarArquivoLocal('flui-diagnostico-fatura.txt', new Blob([txt],{type:'text/plain;charset=utf-8'})); });
   var b=sh.querySelector('#btnFatDiag'); if(b) b.style.display='none';
 }
+/* ---- Revisao manual (1.10.0) ----
+   Quando a fatura foi reconhecida mas a soma nao fechou, o usuario ve as linhas lidas e desmarca o que nao e compra.
+   O alvo e o total impresso e rotulado na fatura (total dos lancamentos; sem ele, total da fatura menos saldo anterior e encargos).
+   So deixa continuar quando a soma das linhas marcadas (mais o IOF) bate exatamente com o alvo, e o total da fatura fecha. */
+function alvoRevisaoFatura(r){
+  if(r.totalLancamentos!=null) return r.totalLancamentos;
+  if(r.totalFatura!=null) return r.totalFatura-(r.saldoFinanciado||0)-(r.encargos||0);
+  return null;
+}
+function podeRevisarFatura(r){
+  return !!(r && r.banco && r.vencimento && r.totalFatura!=null && alvoRevisaoFatura(r)!=null &&
+    (r.portadores||[]).some(function(p){ return (p.compras||[]).length || (p.internacionais||[]).length; }));
+}
+function abrirRevisaoFatura(r){
+  var alvo=alvoRevisaoFatura(r), iofTotal=0, itens=[];
+  r.portadores.forEach(function(p,pi){
+    iofTotal+=p.iof||0;
+    (p.compras||[]).forEach(function(c,i){ itens.push({pi:pi, tipo:'c', i:i, c:c, nome:p.nome}); });
+    (p.internacionais||[]).forEach(function(c,i){ itens.push({pi:pi, tipo:'i', i:i, c:c, nome:p.nome+' · internacional'}); });
+  });
+  var fechaTotal=(r.totalLancamentos==null) || (r.totalLancamentos+(r.saldoFinanciado||0)+(r.encargos||0)===r.totalFatura);
+  var html='<div class="sheet-header"><h2>Revisar linhas lidas</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
+  html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Estas são as '+itens.length+' linhas que o FLUI leu como compras. Desmarque o que não for compra (por exemplo, um total ou um texto lido por engano). A fatura só pode ser importada quando a soma bater com o total impresso nela.</p>';
+  html+='<div class="card" id="revPainel" style="margin-bottom:12px"></div>';
+  if(!fechaTotal) html+='<div class="badge gold" style="margin-bottom:12px;white-space:normal">O total dos lançamentos mais o saldo anterior e os encargos não dá o total da fatura. Isso não se resolve desmarcando linhas: lance a fatura à mão.</div>';
+  html+=htmlCampoBusca('revBusca','Buscar linha (nome, data ou valor)','');
+  html+='<div class="ledger" id="revLista">';
+  var nomeAnt=null;
+  itens.forEach(function(x,k){
+    if(x.nome!==nomeAnt){ nomeAnt=x.nome; html+='<div class="ledger-row" data-rev-grupo="1" style="background:var(--color-surface-muted)"><div class="ledger-main"><div class="ledger-title" style="font-size:12.5px;font-weight:700">'+esc(x.nome)+'</div></div></div>'; }
+    html+='<label class="ledger-row" data-rev="'+k+'" style="cursor:pointer"><input type="checkbox" class="rev-check" data-k="'+k+'" checked style="width:18px;height:18px;margin-right:10px;flex:none;">';
+    html+='<div class="ledger-main"><div class="ledger-title">'+esc(x.c.descricao)+(x.c.parcela?' <span class="badge">'+esc(x.c.parcela)+'</span>':'')+'</div><div class="ledger-sub">'+esc(x.c.data)+(x.c.detalhe?' · '+esc(x.c.detalhe):'')+'</div></div>';
+    html+='<div class="ledger-value num'+(x.c.valor<0?' value-in':'')+'">'+formatBRL(reaisDeCentavos(x.c.valor))+'</div></label>';
+  });
+  html+='</div>';
+  html+='<div class="btn-row" style="margin-top:14px"><button class="btn secondary" id="btnRevVoltar">Voltar</button><button class="btn" id="btnRevContinuar" disabled>Conferir e continuar</button></div>';
+  openSheet(html);
+  var sh=document.getElementById('sheet');
+  sh.querySelector('#sheetClose').addEventListener('click', closeSheet);
+  sh.querySelector('#btnRevVoltar').addEventListener('click', function(){ mostrarConferenciaFatura(r); });
+  var painel=sh.querySelector('#revPainel'), bc=sh.querySelector('#btnRevContinuar');
+  function marcados(){ return [].map.call(sh.querySelectorAll('.rev-check'), function(cb){ return cb.checked; }); }
+  function atualizar(){
+    var m=marcados(), soma=iofTotal, desm=0;
+    itens.forEach(function(x,k){ if(m[k]) soma+=x.c.valor; else desm++; });
+    var dif=soma-alvo, okSoma=dif===0;
+    painel.innerHTML='<div class="ledger-row" style="padding:0 0 6px;border:none"><div class="ledger-main"><div class="ledger-title">Soma das linhas marcadas'+(iofTotal?' (com IOF)':'')+'</div></div><div class="ledger-value num">'+formatBRL(reaisDeCentavos(soma))+'</div></div>'+
+      '<div class="ledger-row" style="padding:0 0 6px;border:none"><div class="ledger-main"><div class="ledger-title">Total impresso na fatura</div><div class="ledger-sub">'+(r.totalLancamentos!=null?'Total dos lançamentos atuais':'Total da fatura menos saldo anterior e encargos')+'</div></div><div class="ledger-value num">'+formatBRL(reaisDeCentavos(alvo))+'</div></div>'+
+      '<div style="font-size:13px;font-weight:600;margin-top:4px;color:'+(okSoma?'var(--color-primary)':'var(--color-gold)')+'">'+(okSoma?'✓ A soma bate com o total da fatura'+(desm?' ('+desm+' linha(s) desmarcada(s))':'')+'.':(dif>0?'Sobram '+formatBRL(reaisDeCentavos(dif))+': desmarque o que não é compra.':'Faltam '+formatBRL(reaisDeCentavos(-dif))+': o FLUI não achou alguma compra. Desmarcar não resolve; lance a fatura à mão.'))+'</div>';
+    bc.disabled=!(okSoma && fechaTotal);
+  }
+  sh.querySelectorAll('.rev-check').forEach(function(cb){ cb.addEventListener('change', atualizar); });
+  ligarCampoBusca(sh.querySelector('#revBusca'), function(v){
+    var termos=termosBusca(v);
+    sh.querySelectorAll('#revLista .ledger-row[data-rev]').forEach(function(row){ row.style.display=(!termos.length || textoCasa(row.textContent, termos))?'':'none'; });
+    sh.querySelectorAll('#revLista [data-rev-grupo]').forEach(function(g){ g.style.display=termos.length?'none':''; });
+  });
+  bc.addEventListener('click', function(){
+    if(bc.disabled) return;
+    var m=marcados(), desm=m.filter(function(x){ return !x; }).length;
+    var r2=Object.assign({}, r, {ok:true, erros:[], revisada:desm||0, portadores:r.portadores.map(function(p,pi){
+      var comp=(p.compras||[]).filter(function(c,i){ return m[itens.findIndex(function(x){ return x.pi===pi && x.tipo==='c' && x.i===i; })]; });
+      var inter=(p.internacionais||[]).filter(function(c,i){ return m[itens.findIndex(function(x){ return x.pi===pi && x.tipo==='i' && x.i===i; })]; });
+      var sc=comp.reduce(function(s,c){ return s+c.valor; },0), si=inter.reduce(function(s,c){ return s+c.valor; },0)+(inter.length||p.internacionais.length?(p.iof||0):0);
+      return Object.assign({}, p, {compras:comp, internacionais:inter, subtotal:sc, subtotalInter:(inter.length||p.internacionais.length)?si:p.subtotalInter});
+    }).filter(function(p){ return p.compras.length || p.internacionais.length; })});
+    mostrarConferenciaFatura(r2);
+  });
+  atualizar();
+}
 function mostrarConferenciaFatura(r){
   var head='<div class="sheet-header"><h2>'+(r.ok?'Conferir fatura':'Fatura não importada')+'</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
   var html=head, bloqueio=null;
@@ -4542,6 +4624,7 @@ function mostrarConferenciaFatura(r){
   if(!r.ok){
     html+='<p style="font-size:13.5px;color:var(--color-ink-soft);margin-top:0">A leitura não passou na conferência, por isso nada foi lançado:</p>';
     html+='<div class="ledger">'+r.erros.slice(0,6).map(function(e){ return '<div class="ledger-row"><div class="ledger-main"><div class="ledger-title" style="font-size:13.5px">'+esc(e)+'</div></div></div>'; }).join('')+'</div>';
+    if(podeRevisarFatura(r)) html+='<button class="btn secondary" id="btnFatRevisar" style="margin-top:14px">Revisar as linhas lidas</button><div style="font-size:12.5px;color:var(--color-ink-soft);margin-top:6px">Desmarque o que não é compra até a soma bater com o total impresso na fatura.</div>';
     html+='<div class="btn-row" style="margin-top:14px"><button class="btn secondary" id="btnFatFechar">Fechar</button><button class="btn" id="btnFatManual">Lançar à mão</button></div>';
     if(ultimaLeituraFatura) html+='<button class="link-btn" id="btnFatDiag" style="margin-top:14px;display:block">Ver diagnóstico para enviar ao suporte</button><div id="fatDiagCaixa"></div>';
     openSheet(html);
@@ -4549,6 +4632,7 @@ function mostrarConferenciaFatura(r){
     sh.querySelector('#sheetClose').addEventListener('click', closeSheet); sh.querySelector('#btnFatFechar').addEventListener('click', closeSheet);
     sh.querySelector('#btnFatManual').addEventListener('click', openFaturaManualSheet);
     var bd=sh.querySelector('#btnFatDiag'); if(bd) bd.addEventListener('click', function(){ mostrarDiagnosticoFatura(sh, r); });
+    var br=sh.querySelector('#btnFatRevisar'); if(br) br.addEventListener('click', function(){ abrirRevisaoFatura(r); });
     return;
   }
   var comp=r.vencimento.slice(0,7), total=reaisDeCentavos(r.totalFatura);
@@ -4558,11 +4642,16 @@ function mostrarConferenciaFatura(r){
   var nCompras=0, nEstornos=0, nInter=0, iof=0;
   r.portadores.forEach(function(p){ nCompras+=p.compras.length; nEstornos+=p.compras.filter(function(c){ return c.valor<0; }).length; nInter+=p.internacionais.length; iof+=p.iof||0; });
   function linha(t,v,sub){ return '<div class="ledger-row"><div class="ledger-main"><div class="ledger-title">'+t+'</div>'+(sub?'<div class="ledger-sub">'+sub+'</div>':'')+'</div><div class="ledger-value num">'+v+'</div></div>'; }
+  /* 1.10.0: leitura generica (banco sem leitor proprio): aviso e nome do banco editavel (vira o titulo da fatura) */
+  if(r.experimental){
+    html+='<div class="badge gold" style="margin-bottom:12px;white-space:normal;line-height:1.45">Leitura genérica (experimental): este banco ainda não tem um leitor próprio no FLUI. As compras foram conferidas com o total impresso na fatura, mas confira os valores com a fatura antes de importar.</div>';
+    html+='<div class="field"><label for="fatBancoNome">Banco (como deve aparecer no FLUI)</label><input type="text" id="fatBancoNome" maxlength="40" value="'+esc(r.banco)+'"></div>';
+  }
   html+='<div class="ledger">';
-  html+=linha('Banco', esc(r.banco));
+  if(!r.experimental) html+=linha('Banco', esc(r.banco));
   html+=linha('Vencimento', esc(formatDataBR(r.vencimento)), 'Competência: '+monthLabel(comp));
   html+=linha('Total da fatura', formatBRL(total));
-  html+=linha('Conferência das somas', '✓', 'As compras somam exatamente o total informado pelo banco');
+  html+=linha('Conferência das somas', '✓', r.revisada ? 'Conferida depois da sua revisão ('+r.revisada+' linha(s) desmarcada(s)): as compras marcadas somam exatamente o total informado pelo banco' : 'As compras somam exatamente o total informado pelo banco');
   r.portadores.forEach(function(p){ var sub=(p.subtotal||0)+(p.subtotalInter||0); html+=linha(esc(p.nome), formatBRL(reaisDeCentavos(sub)), p.compras.length+' compra(s)'+(p.internacionais.length?' e '+p.internacionais.length+' internacional(is)':'')); });
   if(nEstornos) html+=linha('Estornos', String(nEstornos));
   if(iof) html+=linha('IOF das compras internacionais', formatBRL(reaisDeCentavos(iof)));
@@ -4583,7 +4672,8 @@ function mostrarConferenciaFatura(r){
   if(bi) bi.addEventListener('click', function(){
     if(bi.disabled) return; bi.disabled=true;
     var conv=function(c){ return {data:c.data, descricao:c.descricao, parcela:c.parcela||null, valor:reaisDeCentavos(c.valor), detalhe:c.detalhe||''}; };
-    var dados={manual:false, banco:r.banco, descricao:'', vencimento:r.vencimento, total:total,
+    var campoBanco=sheet.querySelector('#fatBancoNome'), nomeBanco=campoBanco ? (String(campoBanco.value||'').replace(/\s+/g,' ').trim().slice(0,40) || r.banco) : r.banco;
+    var dados={manual:false, banco:nomeBanco, descricao:'', vencimento:r.vencimento, total:total, revisada:r.revisada||0, perfil:r.perfil||'', experimental:!!r.experimental,
       saldoAnterior:reaisDeCentavos(r.saldoFinanciado||0), encargos:reaisDeCentavos(r.encargos||0), totalLancamentos:reaisDeCentavos(r.totalLancamentos),
       proximaFatura:r.proximaFatura?reaisDeCentavos(r.proximaFatura):0,
       portadores:r.portadores.map(function(p){ return {nome:p.nome, subtotal:reaisDeCentavos(p.subtotal||0), compras:p.compras.map(conv), internacionais:p.internacionais.map(conv), iof:reaisDeCentavos(p.iof||0), subtotalInter:reaisDeCentavos(p.subtotalInter||0)}; })};
@@ -4610,8 +4700,19 @@ function chaveEstab(d){ return String(d||'').toUpperCase().replace(/\d+/g,'').re
 var RE_ASSINATURA=/spotify|netflix|amazon ?prime|prime ?video|disney|hbo|max\.com|globoplay|deezer|youtube|google ?one|google storage|apple\.com\/bill|itunes|icloud|microsoft|xbox|office ?365|adobe|paramount|star ?plus|crunchyroll|twitch|openai|chatgpt|anthropic|melimais|clube latam|clube ?smiles|clube livelo|tudo ?azul|smart ?fit|bluefit|totalpass|gympass|wellhub|uber ?one|audible|kindle unl|canva|dropbox|notion|github|tidal|vivo ?play/i;
 function marcasAssinatura(){ return (config && config.assinaturasCartao && typeof config.assinaturasCartao==='object') ? config.assinaturasCartao : {}; }
 function faturasImportadas(){ return faturasCache.filter(function(f){ return !f.manual && (f.portadores||[]).length; }); }
-function faturaReferencia(mes){ return faturasImportadas().filter(function(f){ return f.competencia<=mes; }).sort(function(a,b){ return a.vencimento<b.vencimento?1:(a.vencimento>b.vencimento?-1:0); })[0]||null; }
+/* Base da analise e do "Cartao e sua renda" (1.10.0): TODAS as faturas importadas do mes mais recente ate o mes visto
+   (varios cartoes no mesmo mes sao somados). Com uma fatura so, devolve a propria fatura (comportamento de antes).
+   Com mais de uma, devolve um grupo {grupo:true, faturas, competencia, portadores} que as funcoes abaixo leem como uma fatura. */
+function faturaReferencia(mes){
+  var imp=faturasImportadas().filter(function(f){ return f.competencia<=mes; }); if(!imp.length) return null;
+  var comp=imp.map(function(f){ return f.competencia; }).sort().pop();
+  var doMes=imp.filter(function(f){ return f.competencia===comp; }).sort(function(a,b){ return a.vencimento<b.vencimento?-1:(a.vencimento>b.vencimento?1:0); });
+  if(doMes.length===1) return doMes[0];
+  return {grupo:true, id:'grupo:'+comp, competencia:comp, vencimento:doMes[doMes.length-1].vencimento, faturas:doMes,
+    portadores:doMes.reduce(function(l,f){ return l.concat(f.portadores||[]); },[])};
+}
 function comprasDaFatura(f){
+  if(f && f.grupo) return f.faturas.reduce(function(l,x){ var nome=tituloFatura(x).replace(/^Fatura /,''); return l.concat(comprasDaFatura(x).map(function(c){ c.portador=c.portador+' · '+nome+' (venc. '+formatDataBR(x.vencimento).slice(0,5)+')'; return c; })); },[]);
   var out=[];
   (f.portadores||[]).forEach(function(p,pi){
     (p.compras||[]).forEach(function(c,i){ out.push({c:c, portador:p.nome, ref:f.id+'|'+pi+'|c|'+i, inter:false}); });
@@ -4652,7 +4753,7 @@ function categoriaDaCompra(x){
 function secaoCartao(chave, titulo, valor, resumo, corpo){
   var aberto=!!faturasExpandidas['sec-'+chave];
   var h='<div class="card section-gap">';
-  h+='<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div class="ledger-title" style="font-size:15.5px">'+titulo+'</div>'+(valor!==null?'<div class="num" style="font-size:17px;font-weight:600;white-space:nowrap">'+valor+'</div>':'')+'</div>';
+  h+='<div data-dica-ancora="1" style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div class="ledger-title" style="font-size:15.5px" data-dica-item="cartao-sec-'+chave+'">'+titulo+'</div>'+(valor!==null?'<div class="num" style="font-size:17px;font-weight:600;white-space:nowrap">'+valor+'</div>':'')+'</div>';
   h+='<div class="ledger-sub" style="margin-top:4px">'+resumo+'</div>';
   if(corpo){ h+='<button class="btn secondary" data-sec-toggle="'+chave+'" style="margin-top:10px">'+(aberto?'Ocultar':'Ver detalhes')+'</button>'; if(aberto) h+=corpo; }
   return h+'</div>';
@@ -4675,11 +4776,11 @@ function secaoParceladas(f){
     var mRef=shiftMonth(f.competencia,n), rR=rendaReferencia(mRef); proj+=linhaSimples(monthLabel(mRef), ativos.filter(function(i){ return i.faltam>=n; }).length+' parcela(s)'+((rR&&rR.valor>0)?' · '+pctBR(v/rR.valor*100)+' da renda':''), formatBRL(v));
   }
   if(maxF>12) proj+=linhaSimples('Depois de '+monthLabel(shiftMonth(f.competencia,12)),'ainda há parcelas até '+monthLabel(shiftMonth(f.competencia,maxF)),'');
-  var corpo='<div class="section-title section-gap">Parcelas já assumidas nos próximos meses</div><div class="ledger">'+proj+'</div>';
+  var corpo='<div class="ledger-sub" style="margin:10px 0 12px">Valores aproximados: o banco pode ajustar centavos na última parcela.</div>';
+  corpo+='<div class="section-title section-gap">Parcelas já assumidas nos próximos meses</div><div class="ledger">'+proj+'</div>';
   corpo+='<div class="section-title section-gap">Compras</div><div class="ledger">'+itens.map(function(i){
     return linhaSimples(esc(i.x.c.descricao)+' <span class="badge">'+i.atual+' de '+i.total+'</span>', esc(i.x.c.data)+' · '+esc(i.x.portador)+' · '+(i.faltam>0?'faltam '+i.faltam+', a última em '+monthLabel(i.fim)+' · restam '+formatBRL(i.restante):'última parcela, termina nesta fatura'), formatBRL(i.x.c.valor), i.x.ref);
   }).join('')+'</div>';
-  corpo+='<div class="ledger-sub" style="margin-top:8px">Valores aproximados: o banco pode ajustar centavos na última parcela.</div>';
   return secaoCartao('parc','Compras parceladas',formatBRL(total), ativos.length+' compra(s) ainda com parcelas a pagar'+(itens.length>ativos.length?' · '+(itens.length-ativos.length)+' terminam nesta fatura':'')+'. Valor que ainda falta pagar.', corpo);
 }
 function secaoAssinaturas(f){
@@ -4692,9 +4793,9 @@ function secaoAssinaturas(f){
   var total=roundCents(ordem.reduce(function(s,k){ return s+grupos[k].valor; },0));
   if(!ordem.length) return secaoCartao('assin','Assinaturas',null,'Nenhuma assinatura identificada. Em "Ver compras", toque numa compra para marcá-la como assinatura.','');
   ordem.sort(function(a,b){ return grupos[b].valor-grupos[a].valor; });
-  var corpo='<div class="ledger" style="margin-top:10px">'+ordem.map(function(k){ var g=grupos[k];
+  var corpo='<div class="ledger-sub" style="margin-top:10px">Toque numa assinatura para confirmar ou dizer que não é. O app lembra a escolha pelo nome do estabelecimento.</div>';
+  corpo+='<div class="ledger" style="margin-top:10px">'+ordem.map(function(k){ var g=grupos[k];
     return linhaSimples(esc(g.x.c.descricao)+(g.n>1?' <span class="badge">'+g.n+'×</span>':''), esc(g.x.portador)+' · '+MOTIVO_ASSINATURA[g.st], formatBRL(roundCents(g.valor)), g.x.ref); }).join('')+'</div>';
-  corpo+='<div class="ledger-sub" style="margin-top:8px">Toque numa assinatura para confirmar ou dizer que não é. O app lembra a escolha pelo nome do estabelecimento.</div>';
   return secaoCartao('assin','Assinaturas',formatBRL(total), ordem.length+' serviço(s) neste mês · cerca de '+formatBRL(roundCents(total*12))+' por ano.', corpo);
 }
 function secaoCategorias(f){
@@ -4703,30 +4804,30 @@ function secaoCategorias(f){
   (f.portadores||[]).forEach(function(p){ if(p.iof){ soma['Internacional']=(soma['Internacional']||0)+p.iof; total+=p.iof; } });
   var cats=Object.keys(soma).filter(function(k){ return Math.abs(soma[k])>=0.005; }).sort(function(a,b){ return soma[b]-soma[a]; });
   if(!cats.length || !(total>0)) return '';
-  var corpo='<div class="ledger" style="margin-top:10px">'+cats.map(function(k){ var pct=Math.max(0,Math.round(soma[k]/total*1000)/10);
+  var corpo='<div class="ledger-sub" style="margin-top:10px">Categorias informadas pelo banco na fatura.</div>';
+  corpo+='<div class="ledger" style="margin-top:10px">'+cats.map(function(k){ var pct=Math.max(0,Math.round(soma[k]/total*1000)/10);
     return '<div class="ledger-row" style="display:block"><div style="display:flex;justify-content:space-between;gap:10px"><div class="ledger-title">'+esc(k)+'</div><div class="ledger-value num">'+formatBRL(roundCents(soma[k]))+' <span style="font-size:11.5px;font-weight:500;color:var(--color-ink-soft)">'+String(pct).replace('.',',')+'%</span></div></div><div class="progress-track" style="margin-top:6px"><div class="progress-fill teal" style="width:'+Math.min(100,pct)+'%"></div></div></div>'; }).join('')+'</div>';
-  corpo+='<div class="ledger-sub" style="margin-top:8px">Categorias informadas pelo banco na fatura.</div>';
   return secaoCartao('cat','Gastos por categoria',null, cats.length+' categorias · a maior é '+esc(cats[0])+' ('+formatBRL(roundCents(soma[cats[0]]))+').', corpo);
 }
 function secaoMaiores(f){
   var lista=comprasDaFatura(f).filter(function(x){ return x.c.valor>0; }).sort(function(a,b){ return b.c.valor-a.c.valor; }).slice(0,5);
   if(!lista.length) return '';
   var corpo='<div class="ledger" style="margin-top:10px">'+lista.map(function(x){ return linhaSimples(esc(x.c.descricao)+(x.c.parcela?' <span class="badge">'+esc(x.c.parcela)+'</span>':''), esc(x.c.data)+' · '+esc(x.portador), formatBRL(x.c.valor), x.ref); }).join('')+'</div>';
-  return secaoCartao('maiores','Maiores compras',null,'A maior foi '+esc(lista[0].c.descricao)+' ('+formatBRL(lista[0].c.valor)+').', corpo);
+  return secaoCartao('maiores','Compras de maior valor',null,'A de maior valor foi '+esc(lista[0].c.descricao)+' ('+formatBRL(lista[0].c.valor)+').', corpo);
 }
 function secaoDuplicadas(f){
   var g={}, ordem=[];
   comprasDaFatura(f).forEach(function(x){ if(!(x.c.valor>0)) return; var k=x.c.data+'|'+chaveEstab(x.c.descricao)+'|'+x.c.valor; if(!g[k]){ g[k]=[]; ordem.push(k); } g[k].push(x); });
   var dup=ordem.filter(function(k){ return g[k].length>1; });
   if(!dup.length) return secaoCartao('dup','Possíveis cobranças repetidas',null,'Nenhuma compra repetida no mesmo dia, no mesmo lugar e com o mesmo valor.','');
-  var corpo='<div class="ledger" style="margin-top:10px">'+dup.map(function(k){ var x=g[k][0]; return linhaSimples(esc(x.c.descricao)+' <span class="badge">'+g[k].length+'×</span>', esc(x.c.data)+' · '+esc(x.portador), formatBRL(x.c.valor), x.ref); }).join('')+'</div>';
-  corpo+='<div class="ledger-sub" style="margin-top:8px">Pode ser uma compra repetida de verdade (por exemplo, duas passagens). Se não reconhecer, fale com o banco.</div>';
+  var corpo='<div class="ledger-sub" style="margin-top:10px">Pode ser uma compra repetida de verdade (por exemplo, duas passagens). Se não reconhecer, fale com o banco.</div>';
+  corpo+='<div class="ledger" style="margin-top:10px">'+dup.map(function(k){ var x=g[k][0]; return linhaSimples(esc(x.c.descricao)+' <span class="badge">'+g[k].length+'×</span>', esc(x.c.data)+' · '+esc(x.portador), formatBRL(x.c.valor), x.ref); }).join('')+'</div>';
   return secaoCartao('dup','Possíveis cobranças repetidas',null, dup.length+' caso(s) para conferir.', corpo);
 }
 function htmlAnaliseCartao(mes){
   var f=faturaReferencia(mes); if(!f) return '';
-  var h='<div class="section-title section-gap" style="margin-top:24px">Análise do cartão</div>';
-  h+='<div class="resumo-info-line" style="margin-bottom:4px">Com base na fatura de '+monthLabel(f.competencia)+(f.competencia!==mes?' (a mais recente até este mês)':'')+'.</div>';
+  var h='<div class="section-title section-gap" style="margin-top:24px" data-dica-item="cartao-analise">Análise do cartão</div>';
+  h+='<div class="resumo-info-line" style="margin-bottom:4px">'+(f.grupo?'Com base nas '+f.faturas.length+' faturas de '+monthLabel(f.competencia)+' (cartões somados)':'Com base na fatura de '+monthLabel(f.competencia))+(f.competencia!==mes?(f.grupo?' (as mais recentes até este mês)':' (a mais recente até este mês)'):'')+'.</div>';
   return h+secaoParceladas(f)+secaoAssinaturas(f)+secaoCategorias(f)+secaoMaiores(f)+secaoDuplicadas(f);
 }
 function ligarAnaliseCartao(){
@@ -4835,18 +4936,44 @@ function projecaoComprometimento(mes, qtd){
 }
 var SVG_AVISO='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 2.8 19.5h18.4Z"/><path d="M12 10v4.2M12 17h.01"/></svg>';
 var SVG_OK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16.2 9.4"/></svg>';
+/* totais das faturas de um mes agrupados por vencimento (1.10.0): [{venc, total, nomes:[...]}] em ordem de data */
+function totaisPorVencimento(lista){
+  var g={}, ordem=[];
+  lista.forEach(function(f){ var v=f.vencimento||''; if(!g[v]){ g[v]={venc:v, total:0, nomes:[]}; ordem.push(v); } g[v].total=roundCents(g[v].total+(Number(f.total)||0)); g[v].nomes.push(tituloFatura(f)); });
+  return ordem.sort().map(function(v){ return g[v]; });
+}
+function textoPorVencimento(lista){
+  if(lista.length<2) return '';
+  return ' Por vencimento: '+totaisPorVencimento(lista).map(function(x){ return esc(formatDataBR(x.venc).slice(0,5))+' '+formatBRL(x.total)+' ('+esc(x.nomes.join(', '))+')'; }).join('; ')+'.';
+}
 function htmlCartaoRenda(mes){
   var proj=projecaoComprometimento(mes,6), fatMes=faturasDoMes(mes), prev=shiftMonth(mes,-1), fatPrev=faturasDoMes(prev);
   if(!proj && !fatMes.length) return '';
   var h='<div class="section-title" data-dica-item="cartao-renda">Cartão e sua renda</div>';
   var totalMes=roundCents(fatMes.reduce(function(s,f){ return s+(Number(f.total)||0); },0));
+  /* faturas lancadas a mao so tem o total: entram no total do mes, mas nao nas parcelas nem na projecao */
+  var manuais=fatMes.filter(function(f){ return f.manual || !(f.portadores||[]).length; });
+  var notaManual=manuais.length ? (manuais.length===fatMes.length ? 'Fatura lançada à mão: sem as compras, o FLUI não sabe as parcelas dos próximos meses. Importe o PDF da fatura para ver a projeção.' : 'A fatura lançada à mão entra no total do mês, mas não nas parcelas nem na projeção (o FLUI não tem as compras dela).') : '';
+  if(!proj && fatMes.length){
+    /* so faturas lancadas a mao (nenhuma importada ate este mes): mostra o total do mes e quanto ele pesa na renda */
+    var rendaM=rendaReferencia(mes), pctM=(rendaM && rendaM.valor>0) ? totalMes/rendaM.valor*100 : null;
+    h+='<div class="card">';
+    h+='<div class="cr-topo"><div><div class="ledger-sub" data-dica-item="cartao-fatura-mes">Fatura do cartão em '+monthLabel(mes)+'</div><div class="num cr-valor">'+formatBRL(totalMes)+'</div></div>';
+    if(pctM!==null) h+='<div class="cr-pct-grande'+(pctM>=limiteComprometimento()?' alto':'')+'">'+pctBR(pctM)+'<span>da renda</span></div>';
+    h+='</div>';
+    var porV=textoPorVencimento(fatMes); if(porV) h+='<div class="cr-info">'+porV.trim()+'</div>';
+    h+='<div class="cr-info">'+(rendaM ? 'Renda considerada: <b class="num">'+formatBRL(rendaM.valor)+'</b> ('+esc(rendaM.base)+').' : 'Sem entradas lançadas para calcular o percentual da renda.')+'</div>';
+    h+='<div class="cr-info">'+notaManual+'</div>';
+    h+='</div>';
+  }
   if(proj){
     var atual=proj.meses[0], futuros=proj.meses.slice(1);
     h+='<div class="card">';
     h+='<div class="cr-topo"><div><div class="ledger-sub" data-dica-item="cartao-parcelas-mes">Parcelas do cartão em '+monthLabel(mes)+'</div><div class="num cr-valor">'+formatBRL(atual.parcelas)+'</div></div>';
     if(atual.pct!==null) h+='<div class="cr-pct-grande'+(atual.pct>=limiteComprometimento()?' alto':'')+'">'+pctBR(atual.pct)+'<span>da renda</span></div>';
     h+='</div>';
-    if(fatMes.length) h+='<div class="cr-info">Fatura total do mês: <b class="num">'+formatBRL(totalMes)+'</b> (inclui as compras à vista).</div>';
+    if(fatMes.length) h+='<div class="cr-info">Fatura total do mês: <b class="num">'+formatBRL(totalMes)+'</b> (inclui as compras à vista).'+textoPorVencimento(fatMes)+'</div>';
+    if(notaManual) h+='<div class="cr-info">'+notaManual+'</div>';
     h+='<div class="cr-info">'+(atual.renda ? 'Renda considerada: <b class="num">'+formatBRL(atual.renda.valor)+'</b> ('+esc(atual.renda.base)+').' : 'Sem entradas lançadas para calcular o percentual da renda.')+'</div>';
     if(atual.fin>0 && atual.pctTotal!==null) h+='<div class="cr-info">Somando os financiamentos ('+formatBRL(atual.fin)+'), o comprometimento do mês vai a <b>'+pctBR(atual.pctTotal)+'</b> da renda.</div>';
     h+='</div>';
@@ -4856,7 +4983,7 @@ function htmlCartaoRenda(mes){
       var alto=x.pct!==null && x.pct>=limiteComprometimento(), w=x.pct!==null?Math.min(100, x.pct/escala*100):0;
       h+='<div class="cr-linha'+(i===0?' atual':'')+'"><span class="cr-mes">'+mesCurto(x.mes)+'</span><div class="cr-barra"><div class="cr-fill'+(alto?' alto':'')+'" style="width:'+w.toFixed(1)+'%"></div><div class="cr-limite" style="left:'+(limiteComprometimento()/escala*100).toFixed(1)+'%"></div></div><span class="cr-num"><b class="num">'+(x.pct!==null?pctBR(x.pct):'—')+'</b><small class="num">'+formatBRL(x.parcelas)+'</small></span></div>';
     });
-    h+='<div class="cr-info">A linha tracejada marca '+pctBR(limiteComprometimento())+' da renda, o limite definido em Configurações. Os próximos meses consideram só as parcelas de compras já feitas (base: fatura de '+monthLabel(proj.fatura.competencia)+').</div></div>';
+    h+='<div class="cr-info">A linha tracejada marca '+pctBR(limiteComprometimento())+' da renda, o limite definido em Configurações. Os próximos meses consideram só as parcelas de compras já feitas (base: '+(proj.fatura.grupo?'as '+proj.fatura.faturas.length+' faturas importadas de ':'fatura de ')+monthLabel(proj.fatura.competencia)+').</div></div>';
     var comPct=futuros.filter(function(x){ return x.pct!==null; }), pior=comPct.reduce(function(a,b){ return (!a || b.pct>a.pct)?b:a; }, null);
     if(pior && (pior.pct>=limiteComprometimento() || (atual.pct!==null && pior.pct-atual.pct>=ALTA_COMPROMETIMENTO))){
       h+='<div class="resumo-alert aviso">'+SVG_AVISO+'<p><b>Atenção aos próximos meses.</b> Suas parcelas futuras já comprometem uma parte importante da sua renda. Uma compra parcelada não pesa só no mês da compra: ela reduz a renda disponível dos meses seguintes. Antes de assumir novas parcelas, veja o impacto nos próximos meses para não ficar sem margem.<br><br><b>'+monthLabel(pior.mes)+'</b> já tem '+formatBRL(pior.parcelas)+' em parcelas, '+pctBR(pior.pct)+' da sua renda. Novas compras parceladas podem aumentar ainda mais esse comprometimento.</p></div>';
@@ -6738,9 +6865,22 @@ window.FLUI_BRIDGE={
   try{ comMouse=!!(window.matchMedia && window.matchMedia('(hover:hover) and (pointer:fine)').matches); }catch(e){}
   /* Explicacoes dos itens do Resumo (o app marca o rotulo com data-dica-item="chave"; o texto fica todo aqui) */
   var DICAS_ITENS={
-    'cartao-renda':['Cartão e sua renda','Mostra quanto da sua renda já está comprometido com parcelas do cartão, neste mês e nos próximos. A renda é a soma das entradas do mês, sem as retiradas de cofrinho; para meses ainda sem entradas, vale a média dos últimos 3 meses. Usa a fatura importada (PDF) mais recente.'],
+    'cartao-renda':['Cartão e sua renda','Mostra quanto da sua renda já está comprometido com parcelas do cartão, neste mês e nos próximos. A renda é a soma das entradas do mês, sem as retiradas de cofrinho; para meses ainda sem entradas, vale a média dos últimos 3 meses. Usa as faturas importadas (PDF) mais recentes: com mais de uma fatura no mesmo mês (vários cartões), elas são somadas. Fatura lançada à mão entra no total do mês, mas não nas parcelas.'],
     'cartao-parcelas-mes':['Parcelas do cartão no mês','Soma das parcelas de compras parceladas que caem neste mês. A fatura total do mês inclui também as compras à vista.'],
     'cartao-projecao':['Renda já comprometida','Cada barra é um mês: a parte da renda que já está reservada para parcelas de compras feitas. A linha tracejada marca o limite de comprometimento definido em Configurações, na aba Planejamento, em Parâmetros (padrão 30%). Os próximos meses só enxergam as parcelas já compradas: compras novas ainda não aparecem.'],
+    'cartao-analise':['Análise do cartão','Resumo das compras da fatura importada (PDF) mais recente até este mês. Com mais de uma fatura no mesmo mês, elas são somadas. Faturas lançadas à mão não entram aqui, porque não têm as compras.'],
+    'cartao-sec-parc':['Compras parceladas','Compras divididas em parcelas e quanto ainda falta pagar delas. Em "Ver detalhes" aparecem as parcelas que já caem em cada um dos próximos meses e quanto elas ocupam da renda. Os valores são aproximados: o banco pode ajustar centavos na última parcela.'],
+    'cartao-sec-assin':['Assinaturas','Serviços cobrados todo mês, como streaming e aplicativos. O FLUI reconhece pelo nome do serviço ou porque a cobrança se repete com o mesmo valor em outra fatura. Toque na compra para confirmar ou desmarcar; a escolha vale para o estabelecimento. O valor por ano é uma estimativa (valor do mês × 12).'],
+    'cartao-sec-cat':['Gastos por categoria','Quanto foi gasto em cada categoria e quanto isso representa do total. As categorias são as informadas pelo banco na fatura; compras internacionais e o IOF aparecem como Internacional.'],
+    'cartao-sec-maiores':['Compras de maior valor','As 5 compras de maior valor da fatura. Compras parceladas contam pelo valor da parcela deste mês. Toque numa compra para ver os detalhes.'],
+    'cartao-sec-dup':['Possíveis cobranças repetidas','Compras no mesmo dia, no mesmo estabelecimento e com o mesmo valor. Pode ser uma compra repetida de verdade (por exemplo, duas passagens); se não reconhecer, fale com o banco.'],
+    'cartao-previsao':['Previsão da próxima fatura','Soma das parcelas já conhecidas que vão cair na próxima fatura, como informado pelo banco. Compras novas ainda não entram.'],
+    'cartao-compras':['Compras desta fatura','Todas as compras da fatura, separadas por cartão. Use o campo de busca para achar por nome, data, valor ou categoria: aparecem a quantidade e a soma do que foi encontrado. Toque numa compra para ver os detalhes ou marcá-la como assinatura.'],
+    'cartao-servicos':['Produtos e serviços','Cobranças do próprio banco, como seguros e serviços contratados, que a fatura lista separadas das compras.'],
+    'cartao-inter':['Compras internacionais','Compras em moeda estrangeira, já convertidas para reais pelo banco. O IOF cobrado sobre elas aparece no fim da lista.'],
+    'cartao-saldo-anterior':['Saldo da fatura anterior','Parte da fatura passada que não foi paga e entrou nesta fatura.'],
+    'cartao-encargos':['Encargos do mês','Juros e encargos de financiamento e de atraso cobrados pelo banco nesta fatura.'],
+    'cartao-fatura-mes':['Fatura do cartão no mês','Total das faturas do cartão com vencimento neste mês e quanto ele representa da renda. Faturas lançadas à mão só têm o total: sem as compras, o FLUI não sabe as parcelas dos próximos meses. Importe o PDF para ver a projeção.'],
     'cartao-comparado':['Fatura comparada ao mês anterior','Total das faturas do cartão deste mês e do mês anterior, com a diferença entre elas.'],
     'saldo-anterior':['Saldo anterior','Tudo o que sobrou (ou faltou) até o mês passado. Soma o saldo inicial do planejamento com o resultado de cada mês, desde o mês de início.'],
     'resultado-mes':['Resultado do mês','Entradas (-) despesas somente deste mês, incluindo o que foi guardado como Investimento (como os aportes em metas). Os depósitos em cofrinhos não entram nesta conta.'],
@@ -6815,7 +6955,9 @@ window.FLUI_BRIDGE={
     if(comMouse) campo.title=dica;
     campo.setAttribute('data-dica','1');
   }
-  /* itens do Resumo: icone i compacto no rotulo; a explicacao abre em um bloco logo abaixo do cartao/lista a que o item pertence */
+  /* itens do Resumo e da aba Cartao: icone i compacto no rotulo. A explicacao abre LOGO ABAIXO do item (1.10.0, pedido do usuario:
+     nada de descer a lista inteira para ler): abaixo da linha marcada com data-dica-ancora, ou da linha da lista (.ledger-row),
+     ou dos cartoes compactos do topo do Resumo */
   function decorarItem(el){
     el.setAttribute('data-dica-ok','1');
     var d=DICAS_ITENS[el.getAttribute('data-dica-item')]; if(!d) return;
@@ -6830,7 +6972,7 @@ window.FLUI_BRIDGE={
     btn.addEventListener('mousedown', function(e){ e.preventDefault(); });
     btn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); alternar(btn, txt); });
     el.appendChild(btn);
-    var alvo=el.closest('.resumo-hero-card, .resumo-mini-card, .ledger') || el;
+    var alvo=el.closest('[data-dica-ancora]') || el.closest('.ledger-row') || el.closest('.resumo-hero-card, .resumo-mini-card') || el;
     alvo.insertAdjacentElement('afterend', txt);
   }
   function varrer(){
