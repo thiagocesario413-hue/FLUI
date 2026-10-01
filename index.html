@@ -3035,7 +3035,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.10.0';
+var APP_VERSION='1.10.1';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
@@ -4318,8 +4318,11 @@ function renderCartao(){
     html+='<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">';
     html+='<div style="min-width:0"><div class="ledger-title" style="font-size:16px">'+esc(tituloFatura(f))+'</div><div class="ledger-sub">Vence em '+esc(formatDataBR(f.vencimento))+(f.manual?' · lançada à mão':'')+'</div></div>';
     html+='<div class="num" style="font-size:19px;font-weight:600;white-space:nowrap">'+formatBRL(f.total)+'</div></div>';
+    if(f.antecipada) html+='<div class="badge" style="margin-top:8px;white-space:normal"><span data-dica-item="cartao-antecipada">Paga antecipadamente · total a pagar '+formatBRL(f.totalAPagar||0)+'</span></div>';
+    if(numFinito(f.ajuste) && f.ajuste!==0) html+='<div class="badge gold" style="margin-top:8px;white-space:normal"><span data-dica-item="cartao-ajuste">Importada com ajuste de '+formatBRL(f.ajuste)+'</span></div>';
     if(numFinito(f.proximaFatura) && f.proximaFatura>0) html+='<div style="margin-top:6px;font-size:12px;color:var(--color-ink-soft)"><span data-dica-item="cartao-previsao">Previsão da próxima fatura (parcelas já conhecidas)</span>: <b class="num">'+formatBRL(f.proximaFatura)+'</b></div>';
     if(temCompras) html+='<div class="btn-row" style="margin-top:12px"><button class="btn secondary" data-fatura-resumo="'+esc(f.id)+'" style="margin-top:0">Resumo</button><button class="btn secondary" data-fatura-toggle="'+esc(f.id)+'" style="margin-top:0">'+(aberto?'Ocultar compras':'Ver compras')+'</button></div>';
+    if(!fechada && f.manual) html+='<button class="link-btn" data-fatura-editar="'+esc(f.id)+'" style="margin-top:10px;display:block">Editar fatura</button>';
     if(!fechada) html+='<button class="link-btn danger" data-fatura-excluir="'+esc(f.id)+'" style="margin-top:10px;display:block">Excluir fatura</button>';
     if(temCompras && aberto) html+=htmlComprasFatura(f);
     html+='</div>';
@@ -4332,6 +4335,7 @@ function renderCartao(){
   document.getElementById('mainContent').innerHTML=html;
   document.querySelectorAll('[data-fatura-toggle]').forEach(function(b){ b.addEventListener('click', function(){ var id=b.getAttribute('data-fatura-toggle'); faturasExpandidas[id]=!faturasExpandidas[id]; renderCartao(); }); });
   document.querySelectorAll('[data-fatura-excluir]').forEach(function(b){ b.addEventListener('click', function(){ excluirFatura(b.getAttribute('data-fatura-excluir')); }); });
+  document.querySelectorAll('[data-fatura-editar]').forEach(function(b){ b.addEventListener('click', function(){ var fx=faturasCache.find(function(x){ return x.id===b.getAttribute('data-fatura-editar'); }); if(fx) openFaturaManualSheet(fx); }); });
   var bi=document.getElementById('btnImportarFatura'), inp=document.getElementById('inputFaturaPdf'), bm=document.getElementById('btnFaturaManual');
   if(bi) bi.addEventListener('click', function(){ inp.value=''; inp.click(); });
   if(inp) inp.addEventListener('change', function(){ var f=inp.files && inp.files[0]; if(f) importarFaturaPdf(f); });
@@ -4352,7 +4356,7 @@ function htmlComprasFatura(f){
     }
   });
   if(f.saldoAnterior || f.encargos){ h+='<div class="ledger section-gap" data-saldo-anterior="1">';
-    if(f.saldoAnterior) h+='<div class="ledger-row"><div class="ledger-main"><div class="ledger-title"><span data-dica-item="cartao-saldo-anterior">Saldo da fatura anterior</span></div><div class="ledger-sub">Valor que ficou da fatura passada</div></div><div class="ledger-value num">'+formatBRL(f.saldoAnterior)+'</div></div>';
+    if(f.saldoAnterior) h+='<div class="ledger-row"><div class="ledger-main"><div class="ledger-title"><span data-dica-item="cartao-saldo-anterior">'+(f.saldoAnterior<0?'Crédito (pagamento antecipado)':'Saldo da fatura anterior')+'</span></div><div class="ledger-sub">'+(f.saldoAnterior<0?'Valor já pago antes do fechamento desta fatura':'Valor que ficou da fatura passada')+'</div></div><div class="ledger-value num">'+formatBRL(f.saldoAnterior)+'</div></div>';
     if(f.encargos) h+='<div class="ledger-row"><div class="ledger-main"><div class="ledger-title"><span data-dica-item="cartao-encargos">Encargos do mês</span></div><div class="ledger-sub">Financiamento e moratório, cobrados pelo banco</div></div><div class="ledger-value num">'+formatBRL(f.encargos)+'</div></div>';
     h+='</div>'; }
   return h;
@@ -4395,14 +4399,18 @@ function excluirFatura(id){
   });
 }
 
-function openFaturaManualSheet(){
-  var html='<div class="sheet-header"><h2>Lançar fatura à mão</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
-  html+='<div class="field"><label>Descrição da fatura</label><input type="text" id="fatDesc" maxlength="60" value="Fatura do cartão"></div>';
-  html+='<div class="field"><label>Vencimento da fatura</label><input type="date" id="fatVenc"></div>';
-  html+='<div class="field"><label>Valor total da fatura (R$)</label><input type="text" inputmode="decimal" id="fatValor" placeholder="0,00"></div>';
+/* lancar fatura a mao; com "atual", edita uma fatura lancada a mao (1.10.1): descricao, vencimento e valor, e a despesa dela junto */
+function openFaturaManualSheet(atual){
+  /* os botoes "Lancar fatura a mao" chamam esta funcao direto no clique (o argumento e o evento): so edita se receber uma fatura a mao */
+  if(!(atual && atual.manual===true && atual.id)) atual=null;
+  if(atual && competenciaFechada(atual.competencia)){ showToast('Competência fechada. Reabra para editar a fatura.'); return; }
+  var html='<div class="sheet-header"><h2>'+(atual?'Editar fatura':'Lançar fatura à mão')+'</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
+  html+='<div class="field"><label>Descrição da fatura</label><input type="text" id="fatDesc" maxlength="60" value="'+esc(atual?(atual.descricao||'Fatura do cartão'):'Fatura do cartão')+'"></div>';
+  html+='<div class="field"><label>Vencimento da fatura</label><input type="date" id="fatVenc" value="'+esc(atual?atual.vencimento:'')+'"></div>';
+  html+='<div class="field"><label>Valor total da fatura (R$)</label><input type="text" inputmode="decimal" id="fatValor" placeholder="0,00" value="'+(atual?String(atual.total).replace('.',','):'')+'"></div>';
   html+='<div style="font-size:12px;color:var(--color-ink-faint);margin:-6px 0 12px">A fatura entra em Lançamentos como uma despesa na competência do vencimento, no nome de '+esc((config.pessoas&&config.pessoas[0])||'primeira pessoa')+'.</div>';
   html+='<div id="formError" style="display:none;color:var(--color-negative);font-size:13px;margin:-6px 0 10px;"></div>';
-  html+='<button class="btn" id="btnSalvarFatura">Lançar fatura</button>';
+  html+='<button class="btn" id="btnSalvarFatura">'+(atual?'Salvar alterações':'Lançar fatura')+'</button>';
   openSheet(html);
   var sheet=document.getElementById('sheet'), err=sheet.querySelector('#formError');
   sheet.querySelector('#sheetClose').addEventListener('click', closeSheet);
@@ -4414,6 +4422,24 @@ function openFaturaManualSheet(){
     if(valorMonetarioInvalido(txt) || !(val>0)){ erro('Informe o valor total da fatura.'); return; }
     if(competenciaFechada(venc.slice(0,7))){ erro('A competência '+monthLabel(venc.slice(0,7))+' está fechada. Reabra pelo cadeado para lançar a fatura.'); return; }
     btn.disabled=true;
+    if(atual){
+      /* edicao: atualiza a fatura e a despesa dela; se o vencimento mudar de mes, as duas vao para a nova competencia */
+      var comp=venc.slice(0,7), dadosF=Object.assign({}, atual, {descricao:desc, vencimento:venc, competencia:comp, total:roundCents(val), editadoEm:new Date().toISOString()}); delete dadosF.id;
+      var lanAnt=lancamentosAllCache.find(function(l){ return l.id===idLancamentoFatura(atual.id); });
+      Promise.all([
+        db.collection('faturasCartao').doc(atual.id).set(dadosF),
+        db.collection('lancamentos').doc(idLancamentoFatura(atual.id)).set({
+          tipo:'despesa', mes:comp, data:venc, dataMigrada:false,
+          classificacao:(lanAnt&&lanAnt.classificacao)||classificacaoDoCartao(), categoria:'Cartão de Crédito',
+          pessoa:(lanAnt&&lanAnt.pessoa)||(config.pessoas&&config.pessoas[0])||'', descricao:tituloFatura(dadosF)+' (venc. '+formatDataBR(venc)+')',
+          valor:roundCents(val), origemFaturaId:atual.id, criadoEm:(lanAnt&&lanAnt.criadoEm)||new Date().toISOString()
+        })
+      ]).then(function(){
+        registrarLog('editar_fatura_manual',{vencimento:venc, total:roundCents(val)});
+        closeSheet(); if(comp!==currentMonth) irParaMes(comp); showToast('Fatura atualizada: '+formatBRL(roundCents(val))+' em '+monthLabel(comp)+'.');
+      }).catch(function(){ btn.disabled=false; erro('Não foi possível salvar a fatura.'); });
+      return;
+    }
     gravarFatura({manual:true, banco:'', descricao:desc, vencimento:venc, total:roundCents(val), saldoAnterior:0, portadores:[]}).then(function(res){
       registrarLog('lancar_fatura_manual',{vencimento:venc, total:roundCents(val)}); aposGravarFatura(res, roundCents(val));
     }).catch(function(){ btn.disabled=false; erro('Não foi possível lançar a fatura.'); });
@@ -4569,9 +4595,9 @@ function abrirRevisaoFatura(r){
   });
   var fechaTotal=(r.totalLancamentos==null) || (r.totalLancamentos+(r.saldoFinanciado||0)+(r.encargos||0)===r.totalFatura);
   var html='<div class="sheet-header"><h2>Revisar linhas lidas</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
-  html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Estas são as '+itens.length+' linhas que o FLUI leu como compras. Desmarque o que não for compra (por exemplo, um total ou um texto lido por engano). A fatura só pode ser importada quando a soma bater com o total impresso nela.</p>';
+  html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Estas são as '+itens.length+' linhas que o FLUI leu como compras. Desmarque o que não for compra (por exemplo, um total ou um texto lido por engano). A fatura pode ser importada quando a soma bater com o total impresso nela; se não bater, dá para importar com uma linha de ajuste da diferença.</p>';
   html+='<div class="card" id="revPainel" style="margin-bottom:12px"></div>';
-  if(!fechaTotal) html+='<div class="badge gold" style="margin-bottom:12px;white-space:normal">O total dos lançamentos mais o saldo anterior e os encargos não dá o total da fatura. Isso não se resolve desmarcando linhas: lance a fatura à mão.</div>';
+  if(!fechaTotal) html+='<div class="badge gold" style="margin-bottom:12px;white-space:normal">O total dos lançamentos mais o saldo anterior e os encargos não dá o total da fatura. Isso não se resolve desmarcando linhas: use o ajuste abaixo ou lance a fatura à mão.</div>';
   html+=htmlCampoBusca('revBusca','Buscar linha (nome, data ou valor)','');
   html+='<div class="ledger" id="revLista">';
   var nomeAnt=null;
@@ -4583,11 +4609,15 @@ function abrirRevisaoFatura(r){
   });
   html+='</div>';
   html+='<div class="btn-row" style="margin-top:14px"><button class="btn secondary" id="btnRevVoltar">Voltar</button><button class="btn" id="btnRevContinuar" disabled>Conferir e continuar</button></div>';
+  html+='<button class="btn secondary" id="btnRevAjuste" style="margin-top:10px;display:none"></button>';
   openSheet(html);
   var sh=document.getElementById('sheet');
   sh.querySelector('#sheetClose').addEventListener('click', closeSheet);
   sh.querySelector('#btnRevVoltar').addEventListener('click', function(){ mostrarConferenciaFatura(r); });
-  var painel=sh.querySelector('#revPainel'), bc=sh.querySelector('#btnRevContinuar');
+  var painel=sh.querySelector('#revPainel'), bc=sh.querySelector('#btnRevContinuar'), ba=sh.querySelector('#btnRevAjuste');
+  /* 1.10.1: ajuste = total da fatura - saldo anterior - encargos - soma das linhas marcadas (com IOF). Com ele, compras + ajuste + saldo
+     + encargos dao exatamente o total da fatura, que e o valor lancado em Lancamentos */
+  var alvoAjuste=r.totalFatura-(r.saldoFinanciado||0)-(r.encargos||0), ajusteAtual=0;
   function marcados(){ return [].map.call(sh.querySelectorAll('.rev-check'), function(cb){ return cb.checked; }); }
   function atualizar(){
     var m=marcados(), soma=iofTotal, desm=0;
@@ -4595,8 +4625,11 @@ function abrirRevisaoFatura(r){
     var dif=soma-alvo, okSoma=dif===0;
     painel.innerHTML='<div class="ledger-row" style="padding:0 0 6px;border:none"><div class="ledger-main"><div class="ledger-title">Soma das linhas marcadas'+(iofTotal?' (com IOF)':'')+'</div></div><div class="ledger-value num">'+formatBRL(reaisDeCentavos(soma))+'</div></div>'+
       '<div class="ledger-row" style="padding:0 0 6px;border:none"><div class="ledger-main"><div class="ledger-title">Total impresso na fatura</div><div class="ledger-sub">'+(r.totalLancamentos!=null?'Total dos lançamentos atuais':'Total da fatura menos saldo anterior e encargos')+'</div></div><div class="ledger-value num">'+formatBRL(reaisDeCentavos(alvo))+'</div></div>'+
-      '<div style="font-size:13px;font-weight:600;margin-top:4px;color:'+(okSoma?'var(--color-primary)':'var(--color-gold)')+'">'+(okSoma?'✓ A soma bate com o total da fatura'+(desm?' ('+desm+' linha(s) desmarcada(s))':'')+'.':(dif>0?'Sobram '+formatBRL(reaisDeCentavos(dif))+': desmarque o que não é compra.':'Faltam '+formatBRL(reaisDeCentavos(-dif))+': o FLUI não achou alguma compra. Desmarcar não resolve; lance a fatura à mão.'))+'</div>';
+      '<div style="font-size:13px;font-weight:600;margin-top:4px;color:'+(okSoma?'var(--color-primary)':'var(--color-gold)')+'">'+(okSoma?'✓ A soma bate com o total da fatura'+(desm?' ('+desm+' linha(s) desmarcada(s))':'')+'.':(dif>0?'Sobram '+formatBRL(reaisDeCentavos(dif))+': desmarque o que não é compra (ou importe com o ajuste abaixo).':'Faltam '+formatBRL(reaisDeCentavos(-dif))+': o FLUI não achou alguma compra. Desmarcar não resolve: importe com o ajuste abaixo ou lance a fatura à mão.'))+'</div>';
     bc.disabled=!(okSoma && fechaTotal);
+    ajusteAtual=alvoAjuste-soma;
+    if(!bc.disabled || ajusteAtual===0){ ba.style.display='none'; }
+    else { ba.style.display='block'; ba.textContent='Importar com ajuste de '+formatBRL(reaisDeCentavos(ajusteAtual)); }
   }
   sh.querySelectorAll('.rev-check').forEach(function(cb){ cb.addEventListener('change', atualizar); });
   ligarCampoBusca(sh.querySelector('#revBusca'), function(v){
@@ -4604,16 +4637,29 @@ function abrirRevisaoFatura(r){
     sh.querySelectorAll('#revLista .ledger-row[data-rev]').forEach(function(row){ row.style.display=(!termos.length || textoCasa(row.textContent, termos))?'':'none'; });
     sh.querySelectorAll('#revLista [data-rev-grupo]').forEach(function(g){ g.style.display=termos.length?'none':''; });
   });
-  bc.addEventListener('click', function(){
-    if(bc.disabled) return;
+  function montarRevisada(){
     var m=marcados(), desm=m.filter(function(x){ return !x; }).length;
-    var r2=Object.assign({}, r, {ok:true, erros:[], revisada:desm||0, portadores:r.portadores.map(function(p,pi){
+    return Object.assign({}, r, {ok:true, erros:[], revisada:desm||0, portadores:r.portadores.map(function(p,pi){
       var comp=(p.compras||[]).filter(function(c,i){ return m[itens.findIndex(function(x){ return x.pi===pi && x.tipo==='c' && x.i===i; })]; });
       var inter=(p.internacionais||[]).filter(function(c,i){ return m[itens.findIndex(function(x){ return x.pi===pi && x.tipo==='i' && x.i===i; })]; });
       var sc=comp.reduce(function(s,c){ return s+c.valor; },0), si=inter.reduce(function(s,c){ return s+c.valor; },0)+(inter.length||p.internacionais.length?(p.iof||0):0);
       return Object.assign({}, p, {compras:comp, internacionais:inter, subtotal:sc, subtotalInter:(inter.length||p.internacionais.length)?si:p.subtotalInter});
     }).filter(function(p){ return p.compras.length || p.internacionais.length; })});
-    mostrarConferenciaFatura(r2);
+  }
+  bc.addEventListener('click', function(){
+    if(bc.disabled) return;
+    mostrarConferenciaFatura(montarRevisada());
+  });
+  ba.addEventListener('click', function(){
+    var z=ajusteAtual; if(!z) return;
+    var somaTxt=formatBRL(reaisDeCentavos(alvoAjuste-z)), totTxt=formatBRL(reaisDeCentavos(r.totalFatura));
+    askConfirm('As compras marcadas somam '+somaTxt+(r.saldoFinanciado||r.encargos?' (sem o saldo anterior e os encargos)':'')+' e o total da fatura é '+totTxt+'. Será criada a linha "Ajuste da fatura (diferença não identificada)" de '+formatBRL(reaisDeCentavos(z))+' para as compras fecharem com o total. A despesa em Lançamentos será de '+totTxt+'.', 'Importar com ajuste').then(function(sim){
+      if(!sim) return;
+      var r2=montarRevisada();
+      r2.ajuste=z; r2.totalLancamentos=alvoAjuste;
+      r2.portadores=r2.portadores.concat([{nome:'Ajuste da fatura', compras:[{data:'', descricao:'Ajuste da fatura (diferença não identificada)', parcela:null, valor:z, detalhe:'Criado na importação para as compras fecharem com o total da fatura', ajuste:true}], subtotal:z, internacionais:[], iof:0, subtotalInter:null}]);
+      mostrarConferenciaFatura(r2);
+    });
   });
   atualizar();
 }
@@ -4635,9 +4681,14 @@ function mostrarConferenciaFatura(r){
     var br=sh.querySelector('#btnFatRevisar'); if(br) br.addEventListener('click', function(){ abrirRevisaoFatura(r); });
     return;
   }
-  var comp=r.vencimento.slice(0,7), total=reaisDeCentavos(r.totalFatura);
+  /* 1.10.1 (decisao do usuario): fatura paga antecipadamente (credito no resumo, total a pagar menor que os gastos do periodo):
+     a despesa e o valor dos GASTOS do periodo (lancamentos + encargos), e nao o total a pagar, para os gastos do mes nao sumirem */
+  var gastosPer=(r.totalLancamentos!=null) ? r.totalLancamentos+(r.encargos||0) : null;
+  var antecipada=gastosPer!=null && (r.saldoFinanciado||0)<0 && r.totalFatura<gastosPer;
+  var despesaCent=antecipada ? gastosPer : r.totalFatura;
+  var comp=r.vencimento.slice(0,7), total=reaisDeCentavos(despesaCent);
   if(competenciaFechada(comp)) bloqueio='A competência '+monthLabel(comp)+' (mês do vencimento) está fechada. Reabra pelo cadeado no topo, nesse mês, para importar a fatura.';
-  else if(faturasCache.some(function(f){ return !f.manual && f.banco===r.banco && f.vencimento===r.vencimento && Math.round(f.total*100)===r.totalFatura; })) bloqueio='Esta fatura já foi importada (mesmo banco, vencimento e total).';
+  else if(faturasCache.some(function(f){ return !f.manual && f.banco===r.banco && f.vencimento===r.vencimento && (Math.round(f.total*100)===despesaCent || Math.round(f.total*100)===r.totalFatura); })) bloqueio='Esta fatura já foi importada (mesmo banco, vencimento e total).';
   var outras=faturasDoMes(comp);
   var nCompras=0, nEstornos=0, nInter=0, iof=0;
   r.portadores.forEach(function(p){ nCompras+=p.compras.length; nEstornos+=p.compras.filter(function(c){ return c.valor<0; }).length; nInter+=p.internacionais.length; iof+=p.iof||0; });
@@ -4650,12 +4701,16 @@ function mostrarConferenciaFatura(r){
   html+='<div class="ledger">';
   if(!r.experimental) html+=linha('Banco', esc(r.banco));
   html+=linha('Vencimento', esc(formatDataBR(r.vencimento)), 'Competência: '+monthLabel(comp));
-  html+=linha('Total da fatura', formatBRL(total));
-  html+=linha('Conferência das somas', '✓', r.revisada ? 'Conferida depois da sua revisão ('+r.revisada+' linha(s) desmarcada(s)): as compras marcadas somam exatamente o total informado pelo banco' : 'As compras somam exatamente o total informado pelo banco');
-  r.portadores.forEach(function(p){ var sub=(p.subtotal||0)+(p.subtotalInter||0); html+=linha(esc(p.nome), formatBRL(reaisDeCentavos(sub)), p.compras.length+' compra(s)'+(p.internacionais.length?' e '+p.internacionais.length+' internacional(is)':'')); });
+  if(antecipada){
+    html+=linha('Total a pagar', formatBRL(reaisDeCentavos(r.totalFatura)), 'Fatura paga antecipadamente (crédito de '+formatBRL(reaisDeCentavos(-(r.saldoFinanciado||0)))+')');
+    html+=linha('Despesa lançada', formatBRL(total), 'Gastos do período: lançamentos'+(r.encargos?' e encargos':'')+' desta fatura');
+  } else html+=linha('Total da fatura', formatBRL(total));
+  if(r.ajuste) html+=linha('Conferência das somas', '⚠', 'Importada com ajuste de '+formatBRL(reaisDeCentavos(r.ajuste))+': a diferença entre as compras e o total da fatura virou uma linha de ajuste. A despesa é o total da fatura.');
+  else html+=linha('Conferência das somas', '✓', r.revisada ? 'Conferida depois da sua revisão ('+r.revisada+' linha(s) desmarcada(s)): as compras marcadas somam exatamente o total informado pelo banco' : 'As compras somam exatamente o total informado pelo banco');
+  r.portadores.forEach(function(p){ var sub=(p.subtotal||0)+(p.subtotalInter||0), aj=p.compras.length===1 && p.compras[0].ajuste; html+=linha(esc(p.nome), formatBRL(reaisDeCentavos(sub)), aj?'diferença entre as compras e o total da fatura':p.compras.length+' compra(s)'+(p.internacionais.length?' e '+p.internacionais.length+' internacional(is)':'')); });
   if(nEstornos) html+=linha('Estornos', String(nEstornos));
   if(iof) html+=linha('IOF das compras internacionais', formatBRL(reaisDeCentavos(iof)));
-  if(r.saldoFinanciado) html+=linha('Saldo da fatura anterior', formatBRL(reaisDeCentavos(r.saldoFinanciado)));
+  if(r.saldoFinanciado && !antecipada) html+=linha(r.saldoFinanciado<0?'Crédito da fatura anterior':'Saldo da fatura anterior', formatBRL(reaisDeCentavos(r.saldoFinanciado)));
   if(r.encargos) html+=linha('Encargos do mês', formatBRL(reaisDeCentavos(r.encargos)), 'Financiamento e moratório, cobrados pelo banco');
   if(r.proximaFatura) html+=linha('Previsão da próxima fatura', formatBRL(reaisDeCentavos(r.proximaFatura)), 'Parcelas já conhecidas');
   html+='</div>';
@@ -4671,10 +4726,11 @@ function mostrarConferenciaFatura(r){
   var bi=sheet.querySelector('#btnFatImportar');
   if(bi) bi.addEventListener('click', function(){
     if(bi.disabled) return; bi.disabled=true;
-    var conv=function(c){ return {data:c.data, descricao:c.descricao, parcela:c.parcela||null, valor:reaisDeCentavos(c.valor), detalhe:c.detalhe||''}; };
+    var conv=function(c){ var o={data:c.data, descricao:c.descricao, parcela:c.parcela||null, valor:reaisDeCentavos(c.valor), detalhe:c.detalhe||''}; if(c.ajuste) o.ajuste=true; return o; };
     var campoBanco=sheet.querySelector('#fatBancoNome'), nomeBanco=campoBanco ? (String(campoBanco.value||'').replace(/\s+/g,' ').trim().slice(0,40) || r.banco) : r.banco;
-    var dados={manual:false, banco:nomeBanco, descricao:'', vencimento:r.vencimento, total:total, revisada:r.revisada||0, perfil:r.perfil||'', experimental:!!r.experimental,
+    var dados={manual:false, banco:nomeBanco, descricao:'', vencimento:r.vencimento, total:total, revisada:r.revisada||0, ajuste:r.ajuste?reaisDeCentavos(r.ajuste):0, perfil:r.perfil||'', experimental:!!r.experimental,
       saldoAnterior:reaisDeCentavos(r.saldoFinanciado||0), encargos:reaisDeCentavos(r.encargos||0), totalLancamentos:reaisDeCentavos(r.totalLancamentos),
+      antecipada:antecipada, totalAPagar:reaisDeCentavos(r.totalFatura),
       proximaFatura:r.proximaFatura?reaisDeCentavos(r.proximaFatura):0,
       portadores:r.portadores.map(function(p){ return {nome:p.nome, subtotal:reaisDeCentavos(p.subtotal||0), compras:p.compras.map(conv), internacionais:p.internacionais.map(conv), iof:reaisDeCentavos(p.iof||0), subtotalInter:reaisDeCentavos(p.subtotalInter||0)}; })};
     gravarFatura(dados).then(function(res){
@@ -4685,11 +4741,14 @@ function mostrarConferenciaFatura(r){
 function openFaturaInfoSheet(item){
   var html='<div class="sheet-header"><h2>Fatura do cartão</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
   html+='<div class="field"><label>Valor da fatura</label><input type="text" value="'+formatBRL(item.valor)+'" disabled></div>';
-  html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Esta despesa foi gerada pela fatura do cartão. Para ver as compras ou excluir a fatura, use a aba Cartão.</p>';
-  html+='<button class="btn" id="btnAbrirCartao">Abrir a aba Cartão</button>';
+  html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Esta despesa foi gerada pela fatura do cartão. Para ver as compras ou excluir a fatura, use a aba Cartão'+((faturasCache.find(function(x){ return x.id===item.origemFaturaId; })||{}).manual?'; a fatura lançada à mão pode ser editada aqui':'')+'.</p>';
+  var fatM=faturasCache.find(function(x){ return x.id===item.origemFaturaId; }), podeEditar=!!(fatM && fatM.manual && !competenciaFechada(fatM.competencia));
+  if(podeEditar) html+='<button class="btn" id="btnEditarFaturaManual" style="margin-bottom:10px">Editar fatura</button>';
+  html+='<button class="btn'+(podeEditar?' secondary':'')+'" id="btnAbrirCartao">Abrir a aba Cartão</button>';
   openSheet(html);
   var sheet=document.getElementById('sheet');
   sheet.querySelector('#sheetClose').addEventListener('click', closeSheet);
+  if(podeEditar) sheet.querySelector('#btnEditarFaturaManual').addEventListener('click', function(){ openFaturaManualSheet(fatM); });
   sheet.querySelector('#btnAbrirCartao').addEventListener('click', function(){ closeSheet(); var b=document.querySelector('.bottom-nav [data-tab=cartao]'); if(b) b.click(); if(item.mes!==currentMonth) irParaMes(item.mes); });
 }
 
@@ -4730,7 +4789,7 @@ function repeteEmOutraFatura(chave, valor, f){
   });
 }
 function statusAssinatura(c, f){
-  if(!c || c.parcela || !(c.valor>0)) return null;
+  if(!c || c.ajuste || c.parcela || !(c.valor>0)) return null;
   var k=chaveEstab(c.descricao), m=marcasAssinatura()[k];
   if(m===true) return 'marcada'; if(m===false) return null;
   if(RE_ASSINATURA.test(c.descricao)) return 'nome';
@@ -4744,6 +4803,7 @@ function compraPorRef(ref){
   var c=(p[2]==='i'?port.internacionais:port.compras)||[]; return c[+p[3]] ? {f:f, c:c[+p[3]], portador:port.nome} : null;
 }
 function categoriaDaCompra(x){
+  if(x.c.ajuste) return 'Ajuste da fatura';
   if(x.inter) return 'Internacional';
   var t=String(x.c.detalhe||'').trim().split(/\s+/)[0]||'', k=t.toLowerCase();
   var mapa={supermarket:'Supermercado', eletronicos:'Eletrônicos', servicos:'Serviços'};
@@ -4810,14 +4870,14 @@ function secaoCategorias(f){
   return secaoCartao('cat','Gastos por categoria',null, cats.length+' categorias · a maior é '+esc(cats[0])+' ('+formatBRL(roundCents(soma[cats[0]]))+').', corpo);
 }
 function secaoMaiores(f){
-  var lista=comprasDaFatura(f).filter(function(x){ return x.c.valor>0; }).sort(function(a,b){ return b.c.valor-a.c.valor; }).slice(0,5);
+  var lista=comprasDaFatura(f).filter(function(x){ return x.c.valor>0 && !x.c.ajuste; }).sort(function(a,b){ return b.c.valor-a.c.valor; }).slice(0,5);
   if(!lista.length) return '';
   var corpo='<div class="ledger" style="margin-top:10px">'+lista.map(function(x){ return linhaSimples(esc(x.c.descricao)+(x.c.parcela?' <span class="badge">'+esc(x.c.parcela)+'</span>':''), esc(x.c.data)+' · '+esc(x.portador), formatBRL(x.c.valor), x.ref); }).join('')+'</div>';
   return secaoCartao('maiores','Compras de maior valor',null,'A de maior valor foi '+esc(lista[0].c.descricao)+' ('+formatBRL(lista[0].c.valor)+').', corpo);
 }
 function secaoDuplicadas(f){
   var g={}, ordem=[];
-  comprasDaFatura(f).forEach(function(x){ if(!(x.c.valor>0)) return; var k=x.c.data+'|'+chaveEstab(x.c.descricao)+'|'+x.c.valor; if(!g[k]){ g[k]=[]; ordem.push(k); } g[k].push(x); });
+  comprasDaFatura(f).forEach(function(x){ if(!(x.c.valor>0) || x.c.ajuste) return; var k=x.c.data+'|'+chaveEstab(x.c.descricao)+'|'+x.c.valor; if(!g[k]){ g[k]=[]; ordem.push(k); } g[k].push(x); });
   var dup=ordem.filter(function(k){ return g[k].length>1; });
   if(!dup.length) return secaoCartao('dup','Possíveis cobranças repetidas',null,'Nenhuma compra repetida no mesmo dia, no mesmo lugar e com o mesmo valor.','');
   var corpo='<div class="ledger-sub" style="margin-top:10px">Pode ser uma compra repetida de verdade (por exemplo, duas passagens). Se não reconhecer, fale com o banco.</div>';
@@ -4840,7 +4900,8 @@ function abrirCompraSheet(ref){
   var c=r.c, k=chaveEstab(c.descricao), st=statusAssinatura(c,r.f), marca=marcasAssinatura()[k];
   var html='<div class="sheet-header"><h2>Compra</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
   html+='<div class="ledger">'+linhaSimples('Estabelecimento','',esc(c.descricao))+linhaSimples('Data da compra','',esc(c.data))+linhaSimples('Portador','',esc(r.portador))+(c.parcela?linhaSimples('Parcela','',esc(c.parcela)):'')+linhaSimples('Valor','',formatBRL(c.valor))+(c.detalhe?linhaSimples('Informação do banco','',esc(c.detalhe)):'')+linhaSimples('Fatura','','venc. '+esc(formatDataBR(r.f.vencimento)))+'</div>';
-  if(c.parcela){ html+='<p style="font-size:13px;color:var(--color-ink-soft)">Compra parcelada não é tratada como assinatura.</p>'; }
+  if(c.ajuste){ html+='<p style="font-size:13px;color:var(--color-ink-soft)">Linha criada na importação para as compras fecharem com o total da fatura. Não é uma compra.</p>'; }
+  else if(c.parcela){ html+='<p style="font-size:13px;color:var(--color-ink-soft)">Compra parcelada não é tratada como assinatura.</p>'; }
   else if(!(c.valor>0)){ html+='<p style="font-size:13px;color:var(--color-ink-soft)">Estorno: não é tratado como assinatura.</p>'; }
   else {
     html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-bottom:10px">'+(st?'Esta compra conta como <b>assinatura</b> ('+MOTIVO_ASSINATURA[st]+').':'Esta compra <b>não</b> conta como assinatura.')+' A escolha vale para todas as compras deste estabelecimento.</p>';
@@ -4865,12 +4926,14 @@ function mostrarResumoFatura(id){
   html+='<div class="ledger">';
   html+=linhaSimples('Banco','',esc(f.banco||''));
   html+=linhaSimples('Vencimento','Competência: '+monthLabel(f.competencia),esc(formatDataBR(f.vencimento)));
-  html+=linhaSimples('Total da fatura','',formatBRL(f.total));
-  html+=linhaSimples('Conferência das somas','As compras somaram exatamente o total informado pelo banco','✓');
+  if(f.antecipada){ html+=linhaSimples('Total a pagar','Fatura paga antecipadamente',formatBRL(f.totalAPagar||0)); html+=linhaSimples('Despesa lançada','Gastos do período',formatBRL(f.total)); }
+  else html+=linhaSimples('Total da fatura','',formatBRL(f.total));
+  if(numFinito(f.ajuste) && f.ajuste!==0) html+=linhaSimples('Conferência das somas','Importada com ajuste de '+formatBRL(f.ajuste)+' (diferença entre as compras e o total da fatura)','⚠');
+  else html+=linhaSimples('Conferência das somas','As compras somaram exatamente o total informado pelo banco','✓');
   (f.portadores||[]).forEach(function(p){ html+=linhaSimples(esc(p.nome), (p.compras||[]).length+' compra(s)'+((p.internacionais||[]).length?' e '+p.internacionais.length+' internacional(is)':''), formatBRL(roundCents((p.subtotal||0)+(p.subtotalInter||0)))); });
   if(nE) html+=linhaSimples('Estornos','',String(nE));
   if(iof) html+=linhaSimples('IOF das compras internacionais','',formatBRL(roundCents(iof)));
-  if(f.saldoAnterior) html+=linhaSimples('Saldo da fatura anterior','',formatBRL(f.saldoAnterior));
+  if(f.saldoAnterior && !f.antecipada) html+=linhaSimples(f.saldoAnterior<0?'Crédito da fatura anterior':'Saldo da fatura anterior','',formatBRL(f.saldoAnterior));
   if(f.encargos) html+=linhaSimples('Encargos do mês','Financiamento e moratório, cobrados pelo banco',formatBRL(f.encargos));
   if(f.proximaFatura) html+=linhaSimples('Previsão da próxima fatura','Parcelas já conhecidas',formatBRL(f.proximaFatura));
   if(f.importadoEm){ var d=new Date(f.importadoEm); if(!isNaN(d)) html+=linhaSimples('Importada em','',esc(formatDataBR(f.importadoEm.slice(0,10))+' às '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'))); }
@@ -6778,6 +6841,37 @@ window.FLUI_BRIDGE={
 })();
 </script>
 <script>
+/* ===== Valores em reais enquanto digita (1.10.1, pedido do usuario, "estilo banco") =====
+   Vale para todo campo de valor (input com inputmode="decimal"). Os numeros entram pela direita: digitar 1,5,0,0 mostra
+   0,01 -> 0,15 -> 1,50 -> 15,00, com pontos de milhar. Um "-" digitado deixa o valor negativo (ex.: saldo inicial negativo).
+   So muda o que aparece no campo; quem le o valor e o parseMoney do app, que ja entende "1.234,56".
+   Valores ja preenchidos (edicao) sao formatados ao aparecer e ao receber o foco. Campo com data-sem-mascara fica livre. */
+(function(){
+  var SEL='input[inputmode="decimal"]:not([data-sem-mascara])';
+  function fmt(c){ return String(Math.floor(c/100)).replace(/\B(?=(\d{3})+(?!\d))/g,'.')+','+String(c%100).padStart(2,'0'); }
+  /* valor ja preenchido ("1500,5", "1.500,50", "-20") -> "1.500,50" */
+  function normalizar(inp){
+    var v=String(inp.value||'').trim(); if(!v) return;
+    var neg=/^-/.test(v), t=v.replace(/[^\d,.]/g,''), n;
+    if(t.indexOf(',')>=0) n=parseFloat(t.replace(/\./g,'').replace(',','.')); else n=parseFloat(t.replace(/\.(?=\d{3}(\D|$))/g,''));
+    if(!isFinite(n)) return;
+    var novo=(neg?'-':'')+fmt(Math.round(Math.abs(n)*100));
+    if(novo!==inp.value) inp.value=novo;
+  }
+  function aoDigitar(inp){
+    var v=String(inp.value||''), neg=v.indexOf('-')>=0, dig=v.replace(/\D/g,'').replace(/^0+/,'').slice(0,13);
+    var novo=dig ? (neg?'-':'')+fmt(parseInt(dig,10)) : (neg?'-':'');
+    if(novo!==v){ inp.value=novo; try{ inp.setSelectionRange(novo.length, novo.length); }catch(e){} }
+  }
+  /* fase de captura: formata ANTES dos ouvintes do proprio app lerem o valor */
+  document.addEventListener('input', function(e){ var t=e.target; if(t && t.matches && t.matches(SEL)) aoDigitar(t); }, true);
+  document.addEventListener('focusin', function(e){ var t=e.target; if(t && t.matches && t.matches(SEL)){ normalizar(t); try{ var n=t.value.length; t.setSelectionRange(n,n); }catch(x){} } }, true);
+  function varrer(){ var l=document.querySelectorAll(SEL+':not([data-masc])'); for(var i=0;i<l.length;i++){ l[i].setAttribute('data-masc','1'); normalizar(l[i]); } }
+  try{ new MutationObserver(varrer).observe(document.body,{childList:true,subtree:true}); }catch(e){}
+  varrer();
+})();
+</script>
+<script>
 /* ===== Cabecalho fixo: acabamento visual (linha/sombra) so quando a pagina esta rolada ===== */
 (function(){
   var nav=document.getElementById('cabFixo');
@@ -6868,6 +6962,8 @@ window.FLUI_BRIDGE={
     'cartao-renda':['Cartão e sua renda','Mostra quanto da sua renda já está comprometido com parcelas do cartão, neste mês e nos próximos. A renda é a soma das entradas do mês, sem as retiradas de cofrinho; para meses ainda sem entradas, vale a média dos últimos 3 meses. Usa as faturas importadas (PDF) mais recentes: com mais de uma fatura no mesmo mês (vários cartões), elas são somadas. Fatura lançada à mão entra no total do mês, mas não nas parcelas.'],
     'cartao-parcelas-mes':['Parcelas do cartão no mês','Soma das parcelas de compras parceladas que caem neste mês. A fatura total do mês inclui também as compras à vista.'],
     'cartao-projecao':['Renda já comprometida','Cada barra é um mês: a parte da renda que já está reservada para parcelas de compras feitas. A linha tracejada marca o limite de comprometimento definido em Configurações, na aba Planejamento, em Parâmetros (padrão 30%). Os próximos meses só enxergam as parcelas já compradas: compras novas ainda não aparecem.'],
+    'cartao-antecipada':['Paga antecipadamente','O pagamento foi feito antes do fechamento, por isso a fatura tem total a pagar menor (ou zero). O valor que aparece na fatura e entra em Lançamentos é o dos gastos do período (compras e encargos), para os gastos do mês não sumirem do seu controle.'],
+    'cartao-ajuste':['Importada com ajuste','Na importação, as compras lidas não fecharam com o total da fatura e você escolheu importar mesmo assim. A diferença virou a linha "Ajuste da fatura", que aparece na lista de compras e na categoria Ajuste da fatura. A despesa em Lançamentos é o total impresso na fatura.'],
     'cartao-analise':['Análise do cartão','Resumo das compras da fatura importada (PDF) mais recente até este mês. Com mais de uma fatura no mesmo mês, elas são somadas. Faturas lançadas à mão não entram aqui, porque não têm as compras.'],
     'cartao-sec-parc':['Compras parceladas','Compras divididas em parcelas e quanto ainda falta pagar delas. Em "Ver detalhes" aparecem as parcelas que já caem em cada um dos próximos meses e quanto elas ocupam da renda. Os valores são aproximados: o banco pode ajustar centavos na última parcela.'],
     'cartao-sec-assin':['Assinaturas','Serviços cobrados todo mês, como streaming e aplicativos. O FLUI reconhece pelo nome do serviço ou porque a cobrança se repete com o mesmo valor em outra fatura. Toque na compra para confirmar ou desmarcar; a escolha vale para o estabelecimento. O valor por ano é uma estimativa (valor do mês × 12).'],
