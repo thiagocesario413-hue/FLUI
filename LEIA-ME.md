@@ -1,4 +1,4 @@
-﻿# FLUI (versão web / PWA), versão 1.9.2
+﻿# FLUI (versão web / PWA), versão 1.9.3
 
 Este pacote é o FLUI pronto para ser publicado como site instalável (PWA). Ele funciona 100% no aparelho, sem conta e sem enviar dados para lugar nenhum.
 
