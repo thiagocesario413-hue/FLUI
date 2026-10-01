@@ -3,7 +3,7 @@
    ATUALIZACAO: para publicar uma versao nova, altere VERSAO abaixo (junto com APP_VERSION no index.html).
    Como o conteudo do sw.js muda, o navegador instala o novo cache e apaga o antigo. Os DADOS do usuario
    ficam no localStorage e nao sao tocados pelo service worker. */
-var VERSAO = '1.6.3';
+var VERSAO = '1.9.1';
 var CACHE = 'flui-' + VERSAO;
 var ARQUIVOS = [
   './',
@@ -22,7 +22,12 @@ var ARQUIVOS = [
   './fonts/6NU78FyLNQOQZAnv9bYEvDiIdE9Ea92uemAk_WBq8U_9v0c2Wa0KxC9TeA.woff2',
   './fonts/6NU78FyLNQOQZAnv9bYEvDiIdE9Ea92uemAk_WBq8U_9v0c2Wa0KxCFTeO-U.woff2',
   './fonts/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q82sLydOxI.woff2',
-  './fonts/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q82sLyTOxK-vA.woff2'
+  './fonts/k3kPo8UDI-1M0wlSV9XAw6lQkqWY8Q82sLyTOxK-vA.woff2',
+  './lib/leitor-fatura.js',
+  './lib/pdfjs/pdf.min.js',
+  './lib/pdfjs/pdf.worker.min.js',
+  './lib/pdfjs/LICENSE.txt',
+  './lib/pdfjs/ORIGEM.txt'
 ];
 
 self.addEventListener('install', function(e){

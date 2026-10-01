@@ -1,0 +1,1 @@
+﻿PDF.js 4.10.38 (pdfjs-dist, build legacy), licenca Apache-2.0. Arquivos .mjs renomeados para .js para o servidor do Android e do PWA entregarem como JavaScript.
