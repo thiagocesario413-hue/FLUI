@@ -566,6 +566,37 @@ html{touch-action:manipulation;}
 .rs-bloco > .dica-txt{margin:8px 0 0;}
 /* explicacao aberta entre duas linhas de uma lista (1.10.0): ocupa a largura da lista, sem cantos */
 .ledger > .dica-txt{margin:0;border-radius:0;}
+/* ---- Termos de Uso (1.11.0): tela de aceite (acima de tudo, menos a introducao) e leitura depois ---- */
+#termosAceite{position:fixed;inset:0;z-index:95;background:var(--color-bg);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:calc(22px + var(--safe-top)) 18px calc(26px + var(--safe-bottom));box-sizing:border-box;}
+.termos-box{max-width:520px;margin:0 auto;}
+.termos-cab h2{font-size:21px;margin:14px 0 6px;}
+.termos-cab p{color:var(--color-ink-soft);font-size:14px;margin:0 0 12px;line-height:1.45;}
+.termos-resumo{padding-left:18px;margin:0 0 14px;font-size:14px;line-height:1.5;color:var(--color-ink);}
+.termos-resumo li{margin-bottom:7px;}
+.termos-doc{border:1px solid var(--color-border);border-radius:12px;background:var(--color-surface);margin-bottom:10px;}
+.termos-doc summary{padding:13px 14px;font-weight:600;cursor:pointer;color:var(--color-primary);font-size:14.5px;}
+.termos-texto{padding:0 14px 12px;font-size:13px;line-height:1.55;color:var(--color-ink-soft);}
+.termos-doc .termos-texto{max-height:52vh;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.termos-texto h3{font-size:14px;color:var(--color-ink);margin:14px 0 6px;font-family:var(--font-body);}
+.termos-texto p{margin:0 0 8px;}
+.termos-texto ul{margin:0 0 8px;padding-left:18px;}
+.termos-texto li{margin-bottom:5px;}
+.termos-texto b{color:var(--color-ink);}
+.termos-check{display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.4;margin:16px 0 14px;cursor:pointer;color:var(--color-ink);}
+.termos-check input{width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--color-primary);}
+#termosAceitar:disabled{opacity:.45;cursor:not-allowed;}
+.termos-rodape{text-align:center;font-size:12px;color:var(--color-ink-soft);margin-top:14px;}
+.termos-leitura .confirm-box{max-height:86vh;overflow-y:auto;-webkit-overflow-scrolling:touch;text-align:left;}
+.termos-leitura .confirm-box h2{font-size:18px;margin:0 0 4px;}
+.termos-aceite-info{font-size:12.5px;color:var(--color-ink-soft);margin:0 0 10px;}
+/* ---- Backup no Google Drive (1.11.0) ---- */
+.drive-info{font-size:13.5px;line-height:1.5;margin:0 0 10px;}
+.drive-info b{color:var(--color-ink);}
+.drive-aviso{font-size:12.5px;color:var(--color-gold);margin:0 0 10px;}
+.drive-auto{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;margin:12px 0 4px;cursor:pointer;}
+.drive-auto input{width:18px;height:18px;flex:none;margin-top:1px;accent-color:var(--color-primary);}
+.drive-links{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;}
+.drive-lista .ledger-row{cursor:pointer;}
 /* caixas da revisao manual da fatura (1.10.0) na cor do app */
 .rev-check{accent-color:var(--color-primary);}
 .dica-txt b{color:var(--color-ink);font-weight:700;}
@@ -2265,6 +2296,218 @@ function renderResultadoTestes(resultados){
   html+='<div style="text-align:center;margin-top:8px;font-size:12.5px;color:'+(falhas.length?'var(--color-negative)':'var(--color-primary)')+'">'+(falhas.length? (falhas.length+' teste(s) falharam') : 'Todos os '+resultados.length+' testes passaram')+'</div>';
   return html;
 }
+/* ===== Backup no Google Drive (1.11.0, nivel 1 online, decisao do usuario) =====
+   O backup vai do aparelho DIRETO para o Google Drive da conta do usuario, na pasta reservada ao app (escopo drive.appdata:
+   o app nao ve os outros arquivos do Drive). A FluiApps nao tem servidor. O arquivo e o mesmo JSON do "Exportar backup completo".
+   Login: Android pelo plugin @capgo/capacitor-social-login (o Google bloqueia login dentro do WebView); navegador pelo Google
+   Identity Services. Testes: window.__FLUI_DRIVE_MOCK = {login(interativo), fetch(url, opts), logout()} substitui o Google.
+   Estado por aparelho em localStorage flui_drive_v1 {conectado, email, auto, ultimo, assinatura, erro}; fora do backup. */
+var GOOGLE_WEB_CLIENT_ID='';   /* ID do cliente OAuth "Web" do projeto FluiApps no Google Cloud (publico, nao e segredo). Vazio = Drive desativado */
+var DRIVE_ESCOPO='https://www.googleapis.com/auth/drive.appdata', DRIVE_CHAVE='flui_drive_v1', DRIVE_MAX=10, DRIVE_INTERVALO_AUTO=4*3600*1000;
+var DRIVE_API='https://www.googleapis.com/drive/v3/files', DRIVE_UP='https://www.googleapis.com/upload/drive/v3/files';
+var driveToken=null, driveTokenAte=0, driveOcupado=false, driveGoogleIniciado=false, driveAutoTimer=null;
+function driveEstado(){ try{ return JSON.parse(localStorage.getItem(DRIVE_CHAVE)||'{}')||{}; }catch(e){ return {}; } }
+function driveSalvarEstado(o){ try{ localStorage.setItem(DRIVE_CHAVE, JSON.stringify(o)); }catch(e){} }
+function driveMock(){ return window.__FLUI_DRIVE_MOCK||null; }
+function driveDisponivel(){ return !!(driveMock() || GOOGLE_WEB_CLIENT_ID); }
+function driveNativo(){ var c=window.Capacitor; return !!(c && c.isNativePlatform && c.isNativePlatform() && c.Plugins && c.Plugins.SocialLogin); }
+function erroDrive(code, msg){ var e=new Error(msg||code); e.code=code; return e; }
+function mensagemErroDrive(e){
+  var c=e&&e.code;
+  if(c==='rede') return 'Sem conexão com a internet. Tente de novo quando estiver online.';
+  if(c==='cancelado') return 'Conexão com o Google cancelada.';
+  if(c==='auth') return 'Não foi possível entrar na sua conta Google. Toque em "Conectar conta Google" de novo.';
+  if(c==='config') return 'O backup no Google Drive ainda não está ativado nesta versão do app.';
+  if(c==='ocupado') return 'Já existe um backup em andamento. Aguarde um pouco.';
+  return 'O Google Drive não respondeu. Tente de novo mais tarde.';
+}
+function assinaturaDados(txt){ var h=5381; for(var i=0;i<txt.length;i++){ h=((h<<5)+h+txt.charCodeAt(i))|0; } return txt.length+':'+h; }
+function guardarTokenDrive(t){
+  driveToken=t.token; driveTokenAte=t.expiraEm || (Date.now()+55*60*1000);
+  if(t.email){ var st=driveEstado(); st.email=t.email; driveSalvarEstado(st); }
+  return t;
+}
+function carregarGoogleWeb(){
+  return new Promise(function(ok, falha){
+    if(window.google && google.accounts && google.accounts.oauth2) return ok();
+    var sc=document.createElement('script'); sc.src='https://accounts.google.com/gsi/client'; sc.async=true;
+    sc.onload=function(){ ok(); }; sc.onerror=function(){ falha(erroDrive('rede')); };
+    document.head.appendChild(sc);
+  });
+}
+/* interativo=true: pode mostrar a tela do Google (so a partir de um toque do usuario). false: so sem tela (Android) */
+function driveLogin(interativo){
+  var mk=driveMock();
+  if(mk) return Promise.resolve(mk.login(!!interativo)).then(guardarTokenDrive);
+  if(!GOOGLE_WEB_CLIENT_ID) return Promise.reject(erroDrive('config'));
+  if(typeof navigator!=='undefined' && navigator.onLine===false) return Promise.reject(erroDrive('rede'));
+  var escopos=['email','profile',DRIVE_ESCOPO];
+  if(driveNativo()){
+    var SL=window.Capacitor.Plugins.SocialLogin;
+    var ini=driveGoogleIniciado ? Promise.resolve() : SL.initialize({google:{webClientId:GOOGLE_WEB_CLIENT_ID, mode:'online'}}).then(function(){ driveGoogleIniciado=true; });
+    return ini.then(function(){
+      return SL.login({provider:'google', options: interativo ? {scopes:escopos} : {scopes:escopos, filterByAuthorizedAccounts:true, autoSelectEnabled:true}});
+    }).then(function(res){
+      var r=(res&&res.result)||{}, tk=r.accessToken&&r.accessToken.token;
+      if(!tk) throw erroDrive('auth','sem token');
+      return guardarTokenDrive({token:tk, email:(r.profile&&r.profile.email)||''});
+    }, function(e){ throw erroDrive(/cancel/i.test(String(e&&e.message))?'cancelado':'auth', e&&e.message); });
+  }
+  if(!interativo) return Promise.reject(erroDrive('auth','web sem toque'));
+  return carregarGoogleWeb().then(function(){
+    return new Promise(function(ok, falha){
+      var tc=google.accounts.oauth2.initTokenClient({client_id:GOOGLE_WEB_CLIENT_ID, scope:'openid email '+DRIVE_ESCOPO,
+        callback:function(r){ if(r && r.access_token) ok({token:r.access_token, expiraEm:Date.now()+(((+r.expires_in)||3600)-120)*1000}); else falha(erroDrive('auth', r&&r.error)); },
+        error_callback:function(e){ falha(erroDrive(e&&e.type==='popup_closed'?'cancelado':'auth')); }});
+      tc.requestAccessToken({prompt:''});
+    });
+  }).then(function(t){
+    return fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+t.token}}).then(function(r){ return r.ok?r.json():{}; }, function(){ return {}; }).then(function(u){ t.email=(u&&u.email)||''; return guardarTokenDrive(t); });
+  });
+}
+function driveObterToken(interativo){
+  if(driveToken && Date.now()<driveTokenAte) return Promise.resolve(driveToken);
+  return driveLogin(interativo).then(function(){ return driveToken; });
+}
+/* token vencido (401): renova o login e repete a chamada UMA vez */
+function driveFetch(url, opts, interativo, repetida){
+  var mk=driveMock();
+  return driveObterToken(interativo).then(function(tok){
+    var o=Object.assign({}, opts||{}); o.headers=Object.assign({}, (opts&&opts.headers)||{}, {Authorization:'Bearer '+tok});
+    return Promise.resolve(mk ? mk.fetch(url, o) : fetch(url, o)).then(function(r){
+      if(r.status===401){ driveToken=null; driveTokenAte=0; if(!repetida) return driveFetch(url, opts, interativo, true); throw erroDrive('auth'); }
+      if(!r.ok) throw erroDrive('api','HTTP '+r.status);
+      return r;
+    }, function(){ throw erroDrive('rede'); });
+  });
+}
+function driveListar(interativo){
+  return driveFetch(DRIVE_API+'?spaces=appDataFolder&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,name,modifiedTime,size)', {}, interativo)
+    .then(function(r){ return r.json(); }).then(function(j){ return ((j&&j.files)||[]).filter(function(x){ return /^flui-backup-.*\.json$/.test(x.name||'') && /^[\w-]+$/.test(x.id||''); }); });
+}
+function driveEnviar(nome, json, interativo){
+  var b='flui'+Date.now();
+  var corpo='--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify({name:nome, parents:['appDataFolder']})+'\r\n--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+json+'\r\n--'+b+'--';
+  return driveFetch(DRIVE_UP+'?uploadType=multipart&fields=id,name,modifiedTime,size', {method:'POST', headers:{'Content-Type':'multipart/related; boundary='+b}, body:corpo}, interativo).then(function(r){ return r.json(); });
+}
+function driveBaixar(id, interativo){ return driveFetch(DRIVE_API+'/'+encodeURIComponent(id)+'?alt=media', {}, interativo).then(function(r){ return r.text(); }); }
+function driveApagar(id, interativo){ return driveFetch(DRIVE_API+'/'+encodeURIComponent(id), {method:'DELETE'}, interativo); }
+function driveFazerBackup(interativo, origem){
+  if(driveOcupado) return Promise.reject(erroDrive('ocupado'));
+  driveOcupado=true;
+  return coletarTudo().then(function(data){
+    var txtDados=JSON.stringify(data);
+    var json=JSON.stringify({version:1, createdAt:new Date().toISOString(), appVersion:APP_VERSION, data:data});
+    return driveEnviar(nomeArquivoBackup('flui-backup'), json, interativo).then(function(){
+      registrarBackupFeito();
+      var st=driveEstado(); st.ultimo=new Date().toISOString(); st.assinatura=assinaturaDados(txtDados); st.erro=''; driveSalvarEstado(st);
+      /* mantem so os ultimos DRIVE_MAX backups */
+      return driveListar(false).then(function(lista){ return Promise.all(lista.slice(DRIVE_MAX).map(function(x){ return driveApagar(x.id,false).catch(function(){}); })); }).catch(function(){});
+    });
+  }).then(function(){ driveOcupado=false; registrarLog('backup_drive',{origem:origem||'manual'}); },
+    function(e){ driveOcupado=false; var st=driveEstado(); st.erro=(e&&e.code)||'api'; driveSalvarEstado(st); throw e; });
+}
+/* backup automatico: depois de mudancas nos dados, com internet, no maximo a cada 4 horas e so se algo mudou desde o ultimo */
+function agendarBackupDrive(ms){
+  var st=driveEstado(); if(!st.conectado || !st.auto || !driveDisponivel()) return;
+  clearTimeout(driveAutoTimer); driveAutoTimer=setTimeout(backupAutomaticoDrive, ms||30000);
+}
+function backupAutomaticoDrive(){
+  var st=driveEstado(); if(!st.conectado || !st.auto || driveOcupado) return;
+  if(typeof navigator!=='undefined' && navigator.onLine===false) return;
+  var falta=st.ultimo ? DRIVE_INTERVALO_AUTO-(Date.now()-Date.parse(st.ultimo)) : 0;
+  if(falta>0){ clearTimeout(driveAutoTimer); driveAutoTimer=setTimeout(backupAutomaticoDrive, Math.min(falta+1000, 2147480000)); return; }
+  coletarTudo().then(function(data){
+    if(assinaturaDados(JSON.stringify(data))===st.assinatura) return;
+    return driveFazerBackup(false,'auto');
+  }).then(function(){ atualizarPainelDrive(); }, function(){ atualizarPainelDrive(); });
+}
+function driveConectar(){
+  if(!driveDisponivel()){ showToast(mensagemErroDrive({code:'config'})); return; }
+  mostrarCarregando('Conectando ao Google...');
+  driveLogin(true).then(function(t){
+    var st=driveEstado(); st.conectado=true; if(st.auto===undefined) st.auto=true; st.email=t.email||st.email||''; st.erro=''; driveSalvarEstado(st);
+    mostrarCarregando('Fazendo o primeiro backup no Google Drive...');
+    return driveFazerBackup(true,'conectar').then(function(){ esconderCarregando(); showToast('Conta conectada e backup feito no Google Drive.'); });
+  }).catch(function(e){ esconderCarregando(); showToast(mensagemErroDrive(e)); }).then(function(){ atualizarPainelDrive(); });
+}
+function driveBackupAgora(){
+  mostrarCarregando('Fazendo backup no Google Drive...');
+  driveFazerBackup(true,'manual').then(function(){ esconderCarregando(); showToast('Backup feito no Google Drive.'); },
+    function(e){ esconderCarregando(); showToast(mensagemErroDrive(e)); }).then(function(){ atualizarPainelDrive(); });
+}
+function driveRestaurar(){
+  mostrarCarregando('Buscando backups no Google Drive...');
+  driveListar(true).then(function(lista){
+    esconderCarregando();
+    var html='<div class="sheet-header"><h2>Restaurar do Google Drive</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
+    if(!lista.length) html+='<div class="empty-state"><b>Nenhum backup no Google Drive</b>Faça um backup primeiro.</div>';
+    else {
+      html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Escolha qual backup restaurar. Na próxima tela você confere o conteúdo antes de confirmar.</p>';
+      html+='<div class="ledger drive-lista">'+lista.map(function(x,i){ var d=new Date(x.modifiedTime), tam=Math.max(1,Math.round((+x.size||0)/1024));
+        return '<div class="ledger-row clickable" data-drive-id="'+esc(x.id)+'"><div class="ledger-main"><div class="ledger-title">'+(isNaN(d)?esc(x.name):esc(formatDataBR(d.toISOString().slice(0,10)))+' às '+pad2(d.getHours())+':'+pad2(d.getMinutes()))+(i===0?' <span class="badge">mais recente</span>':'')+'</div><div class="ledger-sub">'+tam+' KB</div></div><div class="ledger-value" style="color:var(--color-ink-faint)">›</div></div>'; }).join('')+'</div>';
+    }
+    openSheet(html);
+    var sh=document.getElementById('sheet');
+    sh.querySelector('#sheetClose').addEventListener('click', closeSheet);
+    sh.querySelectorAll('[data-drive-id]').forEach(function(row){ row.addEventListener('click', function(){
+      mostrarCarregando('Baixando o backup...');
+      driveBaixar(row.getAttribute('data-drive-id'), true).then(function(txt){
+        esconderCarregando();
+        var obj; try{ obj=JSON.parse(txt); }catch(e){ showToast('O arquivo do Google Drive não é um backup válido.'); return; }
+        var problema=validarBackup(obj); if(problema){ showToast(problema); return; }
+        mostrarResumoRestauracao(obj);
+      }, function(e){ esconderCarregando(); showToast(mensagemErroDrive(e)); });
+    }); });
+  }, function(e){ esconderCarregando(); showToast(mensagemErroDrive(e)); });
+}
+function driveApagarTudo(){
+  askConfirm('Apagar todos os backups do FLUI no seu Google Drive? Os dados neste aparelho não mudam.', 'Apagar').then(function(sim){
+    if(!sim) return;
+    mostrarCarregando('Apagando os backups do Google Drive...');
+    driveListar(true).then(function(lista){ return Promise.all(lista.map(function(x){ return driveApagar(x.id,true); })).then(function(){ return lista.length; }); })
+      .then(function(n){ esconderCarregando(); var st=driveEstado(); delete st.ultimo; delete st.assinatura; driveSalvarEstado(st); showToast(n?n+' backup(s) apagado(s) do Google Drive.':'Não havia backups no Google Drive.'); registrarLog('apagar_backups_drive',{n:n}); },
+        function(e){ esconderCarregando(); showToast(mensagemErroDrive(e)); }).then(function(){ atualizarPainelDrive(); });
+  });
+}
+function driveDesconectar(){
+  askConfirm('Desconectar a conta Google? Os backups que já estão no Google Drive continuam lá; o backup automático para.', 'Desconectar').then(function(sim){
+    if(!sim) return;
+    var mk=driveMock(), tok=driveToken;
+    try{ if(mk && mk.logout) mk.logout(); else if(driveNativo()) window.Capacitor.Plugins.SocialLogin.logout({provider:'google'}).catch(function(){}); else if(tok && window.google && google.accounts && google.accounts.oauth2) google.accounts.oauth2.revoke(tok, function(){}); }catch(e){}
+    driveToken=null; driveTokenAte=0; clearTimeout(driveAutoTimer);
+    driveSalvarEstado({}); showToast('Conta Google desconectada.'); registrarLog('desconectar_drive',{}); atualizarPainelDrive();
+  });
+}
+/* desenha a secao "Google Drive" em Configuracoes > Backup (se estiver aberta) */
+function atualizarPainelDrive(){
+  var box=document.getElementById('painelDrive'); if(!box) return;
+  var st=driveEstado(), h='<h3>Google Drive</h3>';
+  if(!driveDisponivel()){
+    h+='<p style="font-size:13px;color:var(--color-ink-faint);margin-top:0">O backup no Google Drive ainda não está ativado nesta versão do app.</p>';
+  } else if(!st.conectado){
+    h+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Guarde uma cópia dos seus dados no <b>Google Drive da sua conta</b>, numa pasta reservada ao FLUI (o app não vê os seus outros arquivos). Opcional: a FluiApps não vê esses dados. Com o backup automático, a cópia é atualizada sozinha quando você usa o app.</p>';
+    h+='<button class="btn" id="btnDriveConectar">Conectar conta Google</button>';
+  } else {
+    var d=st.ultimo?new Date(st.ultimo):null;
+    h+='<p class="drive-info">Conectado como <b>'+esc(st.email||'conta Google')+'</b><br>'+(d && !isNaN(d) ? 'Último backup no Drive: <b>'+esc(formatDataBR(st.ultimo.slice(0,10)))+' às '+pad2(d.getHours())+':'+pad2(d.getMinutes())+'</b>' : 'Ainda sem backup no Drive.')+'</p>';
+    if(st.erro==='auth') h+='<p class="drive-aviso">A conta Google precisa ser conectada de novo para o backup continuar. Toque em "Fazer backup agora".</p>';
+    else if(st.erro==='rede') h+='<p class="drive-aviso">O último backup automático não foi feito por falta de internet. Ele tenta de novo sozinho.</p>';
+    h+='<div class="btn-row"><button class="btn" id="btnDriveAgora" style="margin-top:0">Fazer backup agora</button><button class="btn secondary" id="btnDriveRestaurar" style="margin-top:0">Restaurar do Drive</button></div>';
+    h+='<label class="drive-auto"><input type="checkbox" id="chkDriveAuto"'+(st.auto?' checked':'')+'><span>Backup automático: atualiza a cópia no Drive quando os dados mudam, com internet, no máximo a cada 4 horas. Guarda os últimos '+DRIVE_MAX+' backups.</span></label>';
+    h+='<div class="drive-links"><button class="link-btn danger" id="btnDriveApagar">Apagar backups do Google Drive</button><button class="link-btn" id="btnDriveSair">Desconectar</button></div>';
+  }
+  h+='<div class="drive-links"><button class="link-btn" data-doc-legal="termos">Termos de Uso</button><button class="link-btn" data-doc-legal="politica">Política de Privacidade</button></div>';
+  box.innerHTML=h;
+  function liga(id, fn){ var el=box.querySelector('#'+id); if(el) el.addEventListener('click', fn); }
+  liga('btnDriveConectar', driveConectar); liga('btnDriveAgora', driveBackupAgora); liga('btnDriveRestaurar', driveRestaurar);
+  liga('btnDriveApagar', driveApagarTudo); liga('btnDriveSair', driveDesconectar);
+  var ck=box.querySelector('#chkDriveAuto'); if(ck) ck.addEventListener('change', function(){ var s2=driveEstado(); s2.auto=ck.checked; driveSalvarEstado(s2); if(ck.checked) agendarBackupDrive(5000); });
+  ligarLinksDocsLegais(box);
+}
+function ligarLinksDocsLegais(raiz){
+  (raiz||document).querySelectorAll('[data-doc-legal]').forEach(function(b){ b.addEventListener('click', function(){ if(window.FLUI_TERMOS) window.FLUI_TERMOS.abrir(b.getAttribute('data-doc-legal')); }); });
+}
 function openBackupSheet(){
   var html='<div class="sheet-header"><h2>Backup e restauração</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
   html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">O backup completo inclui todos os lançamentos, cofrinhos, retiradas, metas, competências fechadas e configurações, tudo que existe no app.</p>';
@@ -2707,6 +2950,9 @@ document.addEventListener('DOMContentLoaded', function(){
   updateMonthNavVisibility();
   updateLockButtonUI();
   initDb();
+  /* 1.11.0: backup automatico no Google Drive ao abrir e ao voltar para o app */
+  setTimeout(function(){ agendarBackupDrive(20000); }, 0);
+  try{ document.addEventListener('visibilitychange', function(){ if(!document.hidden) agendarBackupDrive(15000); }); }catch(e){}
 });
 document.addEventListener('DOMContentLoaded', function(){
   var overlay=document.getElementById('fluiIntro');
@@ -2897,6 +3143,7 @@ function localGravarTudo(){
   try{
     var envelope={engineVersion:LOCAL_ENGINE_VERSION, savedAt:new Date().toISOString(), colecoes:localCache};
     window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(envelope));
+    try{ agendarBackupDrive(); }catch(e){}
     return true;
   }catch(e){ return false; }
 }
@@ -3035,7 +3282,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.10.1';
+var APP_VERSION='1.11.0';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
@@ -6523,7 +6770,8 @@ function openAjudaSheet(manterBusca){
   html+='<div class="resumo-info-line" style="margin-bottom:14px">Manual completo do app: para que serve cada tela e como usar, com imagens reais (os nomes e valores nas fotos são só um exemplo de demonstração).</div>';
   html+=htmlCampoBusca('ajudaBuscaInput','Buscar na Ajuda (ex.: backup, meta, fatura)',ajudaBusca);
   html+='<div id="ajudaLista"></div>';
-  html+='<div style="text-align:center;font-size:11.5px;color:var(--color-ink-faint);margin-top:16px">Versão '+APP_VERSION+'</div>';
+  html+='<div class="drive-links" style="justify-content:center;margin-top:16px"><button class="link-btn" data-doc-legal="termos">Termos de Uso</button><button class="link-btn" data-doc-legal="politica">Política de Privacidade</button></div>';
+  html+='<div style="text-align:center;font-size:11.5px;color:var(--color-ink-faint);margin-top:10px">Versão '+APP_VERSION+' · FluiApps · fluiapps@gmail.com</div>';
   openSheet(html);
   var sheet=document.getElementById('sheet');
   sheet.querySelector('#sheetClose').addEventListener('click', closeSheet);
@@ -6541,6 +6789,7 @@ function openAjudaSheet(manterBusca){
     });
   }
   ligarCampoBusca(sheet.querySelector('#ajudaBuscaInput'), function(v){ ajudaBusca=v; preencher(); });
+  ligarLinksDocsLegais(sheet);
   preencher();
 }
 var abaConfigAtual='pessoas';
@@ -6597,6 +6846,7 @@ function openConfigSheet(){
   html+='<div class="config-group"><h3>Backup e restauração</h3>';
   html+='<p style="font-size:13px;color:var(--color-ink-faint);margin-top:0">Exporte tudo em um arquivo, ou restaure a partir de um backup salvo anteriormente.</p>';
   html+='<button class="btn secondary" id="btnAbrirBackup">Backup e restauração</button></div>';
+  html+='<div class="config-group" id="painelDrive"></div>';
   html+='<div class="config-group"><h3>Diagnóstico</h3>';
   html+='<p style="font-size:13px;color:var(--color-ink-faint);margin-top:0">Contagem de itens cadastrados e verificação de possíveis erros.</p>';
   html+='<button class="btn secondary" id="btnAbrirDiagnostico">Ver diagnóstico</button></div>';
@@ -6610,6 +6860,7 @@ function openConfigSheet(){
   openSheet(html);
   var sheet=document.getElementById('sheet');
   sheet.classList.add('sheet-config','sheet-padrao');
+  atualizarPainelDrive();
   sheet.querySelector('#sheetClose').addEventListener('click', closeSheet);
   [].forEach.call(sheet.querySelectorAll('.cfg-aba'), function(b){ b.addEventListener('click', function(){ ativarAbaConfig(sheet, b.getAttribute('data-aba')); }); });
   ativarAbaConfig(sheet, abas.some(function(a){ return a[0]===abaConfigAtual; }) ? abaConfigAtual : 'pessoas');
@@ -6838,6 +7089,62 @@ window.FLUI_BRIDGE={
   }
   try{ new MutationObserver(ajustar).observe(main,{childList:true}); }catch(e){}
   ajustar();
+})();
+</script>
+<script>
+/* ===== Termos de Uso e Politica de Privacidade (1.11.0) =====
+   Os textos vem de TERMOS-DE-USO.md e POLITICA-DE-PRIVACIDADE.md (aprovados pelo usuario), convertidos por
+   _test/manual/gerar-docs-legais.js --aplicar (entre os marcadores abaixo). Nao edite o texto aqui: edite o .md e aplique de novo.
+   Aceite: registrado SO no aparelho (localStorage flui_termos_v1 = {versao, aceitoEm}); fora do backup. Subir VERSAO_TERMOS pede novo aceite. */
+/*DOCS-INICIO*/window.FLUI_DOCS={"termos":{"titulo":"Termos de Uso do FLUI","versao":"1","atualizacao":"[data de publicação]","blocos":[{"p":"Ao tocar em <b>\"Aceitar e continuar\"</b>, você declara que leu e concorda com estes Termos de Uso e com a <b>Política de Privacidade</b> do FLUI. Se não concordar, não use o aplicativo."},{"h":"1. O que é o FLUI"},{"p":"O FLUI é um aplicativo de <b>planejamento financeiro pessoal</b>. Ele ajuda você a organizar entradas, despesas, cofrinhos, reserva de segurança, metas, financiamentos e as faturas do cartão de crédito, e mostra resumos, gráficos e projeções a partir do que <b>você</b> registra."},{"h":"2. O que o FLUI não é"},{"li":["O FLUI <b>não é um banco</b> nem uma instituição financeira. Ele <b>não movimenta dinheiro</b>, não faz pagamentos, não acessa a sua conta bancária e não se conecta ao seu banco.","O FLUI <b>não é consultoria financeira, contábil, jurídica ou de investimentos</b>. Resumos, alertas, percentuais e projeções são <b>informativos</b> e servem para ajudar na sua organização. <b>As decisões sobre o seu dinheiro são sempre suas.</b>"]},{"h":"3. Seus dados e o backup"},{"li":["Os dados que você registra ficam <b>guardados no seu aparelho</b>. A FluiApps <b>não recebe, não vê e não guarda</b> esses dados.","<b>O backup é responsabilidade sua.</b> Se você desinstalar o aplicativo, limpar os dados dele, perder ou trocar o aparelho <b>sem ter um backup</b>, os dados <b>serão perdidos</b> e a FluiApps não terá como recuperá-los.","O FLUI oferece duas formas de backup: o <b>arquivo de backup</b>, que você salva onde quiser, e, se você quiser, o <b>backup no Google Drive da sua própria conta Google</b>. Os detalhes estão na Política de Privacidade."]},{"h":"4. Leitura das faturas do cartão"},{"li":["A importação da fatura em PDF é feita <b>no seu aparelho</b>, de forma automática, e <b>pode conter erros</b> (por exemplo, quando o banco muda o formato da fatura).","O FLUI confere as somas antes de importar, mas <b>cabe a você conferir</b> os valores com a fatura original.","A leitura de faturas de bancos sem leitor próprio é <b>experimental</b>.","Quando você escolhe <b>\"Importar com ajuste\"</b>, a diferença entre as compras lidas e o total da fatura vira uma linha de ajuste; a despesa lançada é o total impresso na fatura."]},{"h":"5. Cálculos e projeções"},{"p":"Saldos, percentuais da renda, projeções de parcelas e metas são <b>calculados a partir dos dados que você informou</b> e dependem deles estarem corretos e completos. São <b>estimativas</b>, não garantias."},{"h":"6. Avisos (notificações)"},{"p":"Os avisos são <b>opcionais</b>, criados e mostrados no próprio aparelho. O Android ou o fabricante do celular podem atrasar ou bloquear avisos (por exemplo, por economia de bateria). Não dependa somente deles para pagar contas em dia."},{"h":"7. Uso permitido"},{"p":"Você pode usar o FLUI para <b>organizar as suas finanças pessoais e familiares</b>. Não é permitido copiar, modificar, descompilar ou redistribuir o aplicativo, nem usá-lo para atividades ilegais."},{"h":"8. Disponibilidade e responsabilidade"},{"li":["O FLUI é oferecido <b>no estado em que se encontra</b>. A FluiApps se esforça para manter o aplicativo correto e funcionando, mas <b>não garante</b> que ele estará livre de erros ou disponível o tempo todo.","Na máxima extensão permitida pela lei, a FluiApps <b>não se responsabiliza</b> por perdas decorrentes de: falta de backup; decisões financeiras tomadas com base no aplicativo; dados digitados ou importados incorretamente e não conferidos; falhas do aparelho, do sistema ou de serviços de terceiros (como o Google Drive).","Nada nestes termos limita direitos que a lei garante a você, inclusive os do <b>Código de Defesa do Consumidor</b>."]},{"h":"9. Serviços de terceiros"},{"p":"O backup no Google Drive usa serviços do <b>Google</b>, sujeitos aos termos e à política de privacidade do Google. O uso é <b>opcional</b> e pode ser desligado a qualquer momento."},{"h":"10. Propriedade intelectual"},{"p":"O nome FLUI, o logotipo, o desenho das telas e o código do aplicativo pertencem à FluiApps (ou são usados com permissão, como as bibliotecas de código aberto, cada uma com a sua licença)."},{"h":"11. Assinatura <i>(texto provisório: as condições comerciais ainda serão definidas)</i>"},{"li":["O FLUI poderá ser oferecido mediante <b>assinatura</b>, contratada e cobrada <b>pela loja de aplicativos</b> (por exemplo, Google Play), com os preços e períodos informados na própria loja antes da contratação.","A assinatura pode ter <b>renovação automática</b>, conforme as regras da loja, e pode ser <b>cancelada a qualquer momento</b> nas configurações de assinatura da loja; o cancelamento vale para o período seguinte.","Pedidos de reembolso seguem as regras da loja e a lei, inclusive o <b>direito de arrependimento</b> do Código de Defesa do Consumidor, quando aplicável.","Se a assinatura terminar, <b>os seus dados continuam no seu aparelho</b> e no seu backup."]},{"h":"12. Mudanças nestes termos"},{"p":"Estes termos podem ser atualizados. Quando a mudança for relevante, o FLUI mostrará a nova versão e pedirá <b>um novo aceite</b> antes de continuar."},{"h":"13. Lei aplicável"},{"p":"Estes termos seguem as <b>leis do Brasil</b>. Eventuais questões serão resolvidas no foro do domicílio do usuário, como garante a lei de defesa do consumidor."},{"h":"14. Contato"},{"p":"Dúvidas, sugestões ou problemas: <b>fluiapps@gmail.com</b>"}]},"politica":{"titulo":"Política de Privacidade do FLUI","versao":"2 (com backup opcional no Google Drive)","atualizacao":"[data de publicação]","blocos":[{"h":"Em resumo"},{"li":["<b>A FluiApps não coleta nenhum dado seu.</b> Tudo o que você registra fica <b>no seu aparelho</b>.","<b>Não existe conta no FLUI</b>, nem cadastro, anúncios, rastreadores ou ferramentas de análise de uso.","O <b>backup no Google Drive é opcional</b>: se você ligar, a cópia vai <b>direto do seu aparelho para o Google Drive da sua conta Google</b>, numa pasta reservada ao app. <b>A FluiApps não tem servidor e não vê esses dados.</b>","O app usa a internet <b>somente</b> para esse backup no Google Drive. <b>Sem ligar o backup no Drive, nada sai do aparelho</b>, e o app funciona inteiro em modo avião."]},{"h":"1. O que o FLUI faz com as suas informações"},{"p":"O FLUI é um aplicativo para organizar suas finanças: entradas, despesas, cofrinhos, reserva de segurança, metas, financiamentos e faturas do cartão. Os dados que você digita ou importa (valores, descrições, categorias, nomes de pessoas ou contas, compras das faturas) ficam <b>guardados no armazenamento interno do próprio aplicativo</b>, no seu aparelho."},{"p":"Esses dados <b>não são enviados para a FluiApps</b>. Nós <b>não temos acesso</b> a eles e não conseguimos vê-los, recuperá-los nem apagá-los por você."},{"h":"2. Backup no Google Drive (opcional)"},{"p":"Se você tocar em <b>\"Conectar conta Google\"</b> (Configurações, aba Backup):"},{"li":["<b>O que é acessado:</b> o FLUI pede ao Google permissão <b>somente</b> para a <b>pasta reservada ao aplicativo</b> no seu Google Drive. Com essa permissão, o FLUI <b>não vê</b> seus outros arquivos, fotos ou documentos do Drive. O app também mostra o <b>e-mail da conta</b> conectada, para você saber em qual conta está o backup; esse e-mail fica só no aparelho.","<b>O que é enviado:</b> o <b>arquivo de backup do FLUI</b> (com todos os dados que você registrou e as preferências do app), do seu aparelho <b>direto para o Google</b>. A FluiApps não tem servidor no meio do caminho.","<b>Quando:</b> quando você toca em \"Fazer backup agora\" e, se você ligar o <b>backup automático</b>, de tempos em tempos quando houver mudanças e conexão.","<b>Como fica guardado:</b> pelo Google, na sua conta, segundo a Política de Privacidade do Google (https://policies.google.com/privacy). O arquivo <b>não é criptografado pelo FLUI</b>; a proteção é a da sua conta Google (use senha forte e verificação em duas etapas).","<b>Como parar e apagar:</b> toque em <b>\"Desconectar\"</b> no app; para apagar as cópias, use <b>\"Apagar backups do Google Drive\"</b> no app ou, no Google Drive, em Configurações → Gerenciar apps → FLUI → \"Excluir dados ocultos do app\". Você também pode retirar o acesso em myaccount.google.com/permissions (https://myaccount.google.com/permissions)."]},{"h":"3. O que o FLUI não faz"},{"li":["Não cria conta e não pede telefone, CPF ou documentos.","Não usa a sua localização, a câmera, o microfone nem os seus contatos. Só lê um arquivo seu quando <b>você escolhe</b> importar uma fatura em PDF ou restaurar um backup.","Não mostra anúncios e não usa publicidade de terceiros.","Não usa Google Analytics, Firebase ou qualquer outro serviço de análise ou de relatório de erros.","Não vende, aluga nem compartilha informações com ninguém."]},{"h":"4. Permissões do aplicativo (Android)"},{"li":["<b>Internet</b>: <b>Somente</b> para o login com Google e o backup no Google Drive, quando você liga. Sem isso ligado, nada é enviado","<b>Notificações</b>: Mostrar os avisos que você ligar (vencimento de parcela, competência aberta, fim do mês, lembrete de backup). Por padrão, os textos não trazem valores nem nomes","<b>Receber aviso de que o aparelho reiniciou</b>: Reprogramar os avisos depois que o celular é reiniciado","<b>Manter o aparelho ativo</b>: Permite que o Android entregue o aviso na hora programada"]},{"h":"5. Arquivo de backup e exportação (você no controle)"},{"p":"O FLUI também gera um <b>arquivo de backup</b> e exporta <b>planilhas (CSV)</b> e <b>relatórios em PDF</b> quando <b>você toca no botão</b>. O arquivo vai para o menu de compartilhamento do aparelho, e <b>você escolhe</b> o destino."},{"li":["Esses arquivos contêm <b>todos os dados</b> que você registrou e <b>não são criptografados</b>. Guarde-os em local seguro.","Depois que você compartilha o arquivo, o destino escolhido passa a cuidar dele, segundo as regras dele.","O backup automático do Android está <b>desligado</b> para este app, de propósito. Para trocar de aparelho, use o arquivo de backup ou o backup no Google Drive."]},{"h":"6. Termos de Uso"},{"p":"O registro de que você aceitou os <b>Termos de Uso</b> (versão e data/hora) fica <b>somente no seu aparelho</b>."},{"h":"7. Por quanto tempo os dados ficam guardados"},{"li":["<b>No aparelho:</b> até você apagá-los (Configurações, aba Backup, \"Zona de risco\", \"Resetar todos os dados\") ou desinstalar o app.","<b>No Google Drive (se você usar):</b> o FLUI mantém os <b>últimos 10 backups</b> e apaga os mais antigos. Ficam lá até você apagá-los como descrito no item 2."]},{"h":"8. Versão para navegador (iPhone e computador)"},{"p":"O FLUI também pode ser usado em um navegador e instalado na tela inicial. Os dados ficam <b>no armazenamento do próprio navegador</b>, no seu aparelho, e também <b>não são enviados</b> para nós. A página é hospedada no <b>GitHub Pages</b>, que pode guardar registros técnicos comuns de acesso (como a data e o endereço IP de quem baixa os arquivos da página), segundo a política do GitHub. Esses registros <b>não incluem</b> os seus dados financeiros. O backup no Google Drive funciona do mesmo jeito descrito no item 2."},{"h":"9. Segurança"},{"p":"A segurança dos dados depende também do <b>bloqueio de tela</b> do seu aparelho e da <b>proteção da sua conta Google</b> (se usar o backup no Drive). Recomendamos bloqueio por senha, digital ou reconhecimento facial, manter o sistema atualizado e ativar a verificação em duas etapas no Google."},{"h":"10. Seus direitos (LGPD)"},{"p":"A Lei Geral de Proteção de Dados (Lei 13.709/2018) garante a você direitos sobre os seus dados pessoais, como acesso, correção e exclusão. Como a FluiApps <b>não recebe nem armazena</b> os seus dados, <b>não há nada nos nossos sistemas</b> para acessar, corrigir ou excluir: você tem controle total no aplicativo, no seu aparelho e na sua conta Google. Em caso de dúvida, escreva para <b>fluiapps@gmail.com</b>."},{"h":"11. Crianças"},{"p":"O FLUI é um aplicativo de finanças pessoais e <b>não é direcionado a crianças</b>."},{"h":"12. Bibliotecas e serviços de terceiros"},{"p":"O aplicativo inclui bibliotecas de código aberto (para gerar PDF, ler PDF, agendar avisos e fazer o login com Google). As de PDF e de avisos funcionam <b>inteiramente dentro do aparelho</b>. A de login e o backup usam os <b>serviços do Google</b>, somente quando você liga o backup no Drive."},{"h":"13. Mudanças nesta política"},{"p":"Se o FLUI mudar de modo que afete a sua privacidade, esta política será atualizada <b>antes</b>, a data no topo será alterada e o app pedirá um novo aceite."},{"h":"14. Contato"},{"p":"Dúvidas sobre esta política: <b>fluiapps@gmail.com</b>"}]}};/*DOCS-FIM*/
+(function(){
+  var VERSAO_TERMOS=1, CHAVE='flui_termos_v1';
+  function lerAceite(){ try{ var o=JSON.parse(localStorage.getItem(CHAVE)||'null'); return (o && o.versao>=VERSAO_TERMOS) ? o : null; }catch(e){ return null; } }
+  function htmlDoc(d){ var h=''; ((d&&d.blocos)||[]).forEach(function(b){ if(b.h) h+='<h3>'+b.h+'</h3>'; else if(b.p) h+='<p>'+b.p+'</p>'; else if(b.li) h+='<ul>'+b.li.map(function(x){ return '<li>'+x+'</li>'; }).join('')+'</ul>'; }); return h; }
+  function dataHora(iso){ var d=new Date(iso); if(isNaN(d)) return ''; function p(n){ return (n<10?'0':'')+n; } return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' às '+p(d.getHours())+':'+p(d.getMinutes()); }
+  function mostrarAceite(){
+    if(document.getElementById('termosAceite')) return;
+    var D=window.FLUI_DOCS||{}, ov=document.createElement('div');
+    ov.id='termosAceite'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true'); ov.setAttribute('aria-labelledby','termosTitulo');
+    ov.innerHTML='<div class="termos-box">'+
+      '<div class="termos-cab"><span class="flui-wordmark flui-grad-text">FLU<em>I</em></span><h2 id="termosTitulo">Antes de começar</h2><p>Leia o resumo e os termos. Para usar o FLUI, é preciso aceitar.</p></div>'+
+      '<ul class="termos-resumo">'+
+        '<li>O FLUI organiza o seu <b>planejamento financeiro pessoal</b>. Ele não é banco nem consultoria: as decisões sobre o seu dinheiro são suas.</li>'+
+        '<li>Os seus dados ficam <b>no seu aparelho</b>. A FluiApps não recebe nem vê nada.</li>'+
+        '<li><b>Faça backup.</b> Sem backup, trocar ou perder o celular apaga os dados. Você pode usar o arquivo de backup ou, se quiser, o Google Drive da sua conta.</li>'+
+        '<li>A leitura automática das faturas pode errar: <b>confira os valores</b>.</li>'+
+        '<li>Os textos completos estão logo abaixo.</li>'+
+      '</ul>'+
+      '<details class="termos-doc"><summary>Ler os Termos de Uso</summary><div class="termos-texto">'+htmlDoc(D.termos)+'</div></details>'+
+      '<details class="termos-doc"><summary>Ler a Política de Privacidade</summary><div class="termos-texto">'+htmlDoc(D.politica)+'</div></details>'+
+      '<label class="termos-check"><input type="checkbox" id="termosLi"><span>Li e aceito os Termos de Uso e a Política de Privacidade</span></label>'+
+      '<button type="button" class="btn" id="termosAceitar" disabled>Aceitar e continuar</button>'+
+      '<div class="termos-rodape">FluiApps · fluiapps@gmail.com</div></div>';
+    document.body.appendChild(ov);
+    var cb=ov.querySelector('#termosLi'), bt=ov.querySelector('#termosAceitar');
+    cb.addEventListener('change', function(){ bt.disabled=!cb.checked; });
+    bt.addEventListener('click', function(){
+      if(!cb.checked) return;
+      try{ localStorage.setItem(CHAVE, JSON.stringify({versao:VERSAO_TERMOS, aceitoEm:new Date().toISOString()})); }catch(e){}
+      if(ov.parentNode) ov.parentNode.removeChild(ov);
+    });
+  }
+  /* leitura depois do aceite (Ajuda e Configuracoes): o botao Fechar tem id pdfCancelar, que o Voltar do Android usa */
+  function abrir(qual){
+    var D=window.FLUI_DOCS||{}, d=D[qual==='politica'?'politica':'termos']||{}, ac=lerAceite();
+    var ov=document.createElement('div'); ov.className='confirm-overlay termos-leitura';
+    ov.innerHTML='<div class="confirm-box"><h2>'+(qual==='politica'?'Política de Privacidade':'Termos de Uso')+'</h2>'+
+      '<p class="termos-aceite-info">'+(ac?'Você aceitou a versão '+ac.versao+' dos Termos em '+dataHora(ac.aceitoEm)+'.':'Termos ainda não aceitos neste aparelho.')+' Versão deste texto: '+(d.versao||'')+'.</p>'+
+      '<div class="termos-texto" style="padding:0">'+htmlDoc(d)+'</div>'+
+      '<button type="button" class="btn secondary" id="pdfCancelar" style="width:100%;margin-top:12px">Fechar</button></div>';
+    document.body.appendChild(ov);
+    function fechar(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }
+    ov.querySelector('#pdfCancelar').addEventListener('click', fechar);
+    ov.addEventListener('click', function(e){ if(e.target===ov) fechar(); });
+  }
+  window.FLUI_TERMOS={abrir:abrir, aceito:function(){ return !!lerAceite(); }, versao:VERSAO_TERMOS};
+  function iniciar(){ if(!lerAceite()) mostrarAceite(); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 })();
 </script>
 <script>
