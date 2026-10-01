@@ -3,7 +3,7 @@
    ATUALIZACAO: para publicar uma versao nova, altere VERSAO abaixo (junto com APP_VERSION no index.html).
    Como o conteudo do sw.js muda, o navegador instala o novo cache e apaga o antigo. Os DADOS do usuario
    ficam no localStorage e nao sao tocados pelo service worker. */
-var VERSAO = '1.9.1';
+var VERSAO = '1.9.2';
 var CACHE = 'flui-' + VERSAO;
 var ARQUIVOS = [
   './',
