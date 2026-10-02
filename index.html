@@ -595,6 +595,11 @@ html{touch-action:manipulation;}
 .drive-aviso{font-size:12.5px;color:var(--color-gold);margin:0 0 10px;}
 .drive-auto{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;margin:12px 0 4px;cursor:pointer;}
 .drive-auto input{width:18px;height:18px;flex:none;margin-top:1px;accent-color:var(--color-primary);}
+.aba-opcao{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-top:1px solid var(--color-border);cursor:pointer;}
+.aba-opcao:first-of-type{border-top:none;}
+.aba-opcao input{width:20px;height:20px;flex:none;margin-top:2px;accent-color:var(--color-primary);}
+.aba-opcao b{display:block;font-size:14.5px;color:var(--color-ink);}
+.aba-opcao small{display:block;font-size:12.5px;line-height:1.4;color:var(--color-ink-faint);margin-top:2px;}
 .drive-links{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;}
 .drive-lista .ledger-row{cursor:pointer;}
 /* caixas da revisao manual da fatura (1.10.0) na cor do app */
@@ -1612,6 +1617,31 @@ function defaultConfig(){
     dbVersion:CURRENT_DB_VERSION
   };
 }
+/* Abas opcionais (1.12.0, pedido do usuario): Resumo e Lancamentos sao fixas; as demais o usuario liga em Configuracoes > Abas.
+   config.abasAtivas = {cartao:bool, ...} (vai no backup). Sem o campo (quem ja usava antes da 1.12.0) = todas ligadas.
+   Cadastro novo comeca com todas desligadas. Desligar so esconde a aba e os blocos dela no Resumo: nada e apagado, nenhum calculo muda. */
+var ABAS_OPCIONAIS=[
+  ['cartao','Cartão','Importar as faturas do cartão de crédito em PDF e ver a análise das compras.'],
+  ['cofrinhos','Cofrinhos','Guardar valores separados por conta (o "Total guardado" do Resumo).'],
+  ['reserva','Reserva','Calcular a reserva de segurança a partir das suas despesas essenciais.'],
+  ['metas','Metas','Planejar objetivos com valor e prazo e acompanhar quanto falta por mês.'],
+  ['financiamentos','Financiamentos','Cadastrar financiamentos e gerar as parcelas como despesas.']
+];
+function abaAtiva(tab){
+  if(tab==='resumo' || tab==='lancamentos') return true;
+  var a=config && config.abasAtivas;
+  if(!a || typeof a!=='object') return true;
+  return a[tab]!==false;
+}
+function aplicarAbasNav(){
+  [].forEach.call(document.querySelectorAll('.bottom-nav button[data-tab]'), function(b){
+    b.style.display = abaAtiva(b.getAttribute('data-tab')) ? '' : 'none';
+  });
+  if(!abaAtiva(currentTab)){
+    document.querySelectorAll('.bottom-nav button').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-tab')==='resumo'); });
+    currentTab='resumo';
+  }
+}
 function openReplicarSheet(){
   var itensElegiveis=lancamentosCache.filter(function(l){ return !l.origemRetiradaId && !l.origemFaturaId && !ehParcelaFinanciamento(l) && !ehCopiaDeParcela(l); });
   var ignoradosRetirada=lancamentosCache.filter(function(l){ return !!l.origemRetiradaId; }).length;
@@ -2101,6 +2131,7 @@ function validarConfigBackup(cfg){
   var listas=['pessoas','despesasEssenciais','despesasNaoEssenciais','contasCofrinho'];
   for(var j=0;j<listas.length;j++){ var l=cfg[listas[j]]; if(l!==undefined && !(Array.isArray(l) && l.every(function(x){ return typeof x==='string'; }))) return listas[j]+' inválido'; }
   var ac=cfg.assinaturasCartao; if(ac!==undefined && !(ac && typeof ac==='object' && !Array.isArray(ac) && Object.keys(ac).every(function(k){ return typeof ac[k]==='boolean'; }))) return 'assinaturasCartao inválido';
+  var aa=cfg.abasAtivas; if(aa!==undefined && !(aa && typeof aa==='object' && !Array.isArray(aa) && Object.keys(aa).every(function(k){ return typeof aa[k]==='boolean'; }))) return 'abasAtivas inválido';
   return null;
 }
 function validarBackup(obj){
@@ -3282,7 +3313,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.11.3';
+var APP_VERSION='1.12.0';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
@@ -3295,6 +3326,7 @@ function subscribeConfig(){
     }
     appNeedsSetup = !(config.pessoas && config.pessoas.length>=1 && config.pessoas[0]);
     if(config.mesInicio && currentMonth<config.mesInicio){ currentMonth=config.mesInicio; }
+    aplicarAbasNav();
     updateBranding();
     if(appNeedsSetup){ renderSetupInicial(); }
     else { renderCurrentTab(); rodarMigracoes(); updateMonthNavButtons(); }
@@ -3569,6 +3601,7 @@ function renderSetupInicial(){
   html+='<div class="field"><label>Saldo inicial nesse mês (opcional)</label><input type="text" inputmode="decimal" id="setupSaldoInicial" placeholder="0,00"></div>';
   html+='<div id="setupErro" style="display:none;color:var(--color-negative);font-size:13px;margin:-6px 0 10px;"></div>';
   html+='<button class="btn" id="btnSetupContinuar">Continuar</button>';
+  html+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin:14px 0 0">O app começa com <b>Resumo</b> e <b>Lançamentos</b>. Cartão, Cofrinhos, Reserva, Metas e Financiamentos você liga quando quiser em <b>Configurações → Abas</b>.</p>';
   html+='</div>';
   document.getElementById('mainContent').innerHTML=html;
   document.getElementById('btnSetupContinuar').addEventListener('click', function(){
@@ -3600,6 +3633,7 @@ function renderSetupInicial(){
       reservaMinimaMetas:1000,
       mesInicio:mesInicio,
       saldoInicial:roundCents(saldoInicial),
+      abasAtivas:{cartao:false, cofrinhos:false, reserva:false, metas:false, financiamentos:false},
       dbVersion:CURRENT_DB_VERSION
     };
     currentMonth=mesInicio;
@@ -3851,6 +3885,7 @@ function miniItem(icon, textCor, bgVar, fgVar, label, valor, linha2Label, linha2
     '<div class="resumo-mini-text"><div class="l"'+(dica?' data-dica-item="'+dica+'"':'')+'>'+label+'</div><div class="v '+textCor+' num">'+formatBRL(valor)+'</div>'+extra+'</div></div>';
 }
 function irParaAba(tabName){
+  if(!abaAtiva(tabName)) tabName='resumo';   /* aba desligada em Configuracoes > Abas (ex.: aviso de parcela com Financiamentos desligado) */
   document.querySelectorAll('.bottom-nav button').forEach(function(b){
     b.classList.toggle('active', b.getAttribute('data-tab')===tabName);
   });
@@ -4023,7 +4058,7 @@ function renderResumo(){
   );
   html+=miniItem(ICON_CARTEIRA,'value-in','var(--color-primary-soft)','var(--color-primary)','Entradas',totalEntradas,null,null,'entradas');
   html+=miniItem(ICON_CARTAO,'value-out','var(--color-negative-soft)','var(--color-negative)','Despesas',totalDespesas,null,null,'despesas');
-  html+=miniItem(ICON_MOEDAS,'value-purple','var(--color-purple-soft)','var(--color-purple)','Total guardado',cofMes, aportadoCofrinhoMes!==0?'Aportado este mês (não entra no saldo)':null, aportadoCofrinhoMes, 'total-guardado');
+  if(abaAtiva('cofrinhos')) html+=miniItem(ICON_MOEDAS,'value-purple','var(--color-purple-soft)','var(--color-purple)','Total guardado',cofMes, aportadoCofrinhoMes!==0?'Aportado este mês (não entra no saldo)':null, aportadoCofrinhoMes, 'total-guardado');
   html+='</div>';
 
   if(!ehInicio) html+=msgD1;
@@ -4055,9 +4090,10 @@ function renderResumo(){
   var blocoComposicao=renderComposicaoRenda(despEss, despNao, despInvest, totalEntradas);
   if(blocoComposicao) html+='<section class="rs-bloco">'+blocoComposicao+'</section>';
 
-  var blocoCartao=htmlCartaoRenda(currentMonth);
+  var blocoCartao=abaAtiva('cartao') ? htmlCartaoRenda(currentMonth) : '';
   if(blocoCartao) html+='<section class="rs-bloco">'+blocoCartao+'</section>';
 
+  if(abaAtiva('metas')){
   html+='<section class="rs-bloco"><div class="section-title" data-dica-item="metas">Metas</div>';
   var alocDisponivel=null;
   if(objetivosCache.length===0){
@@ -4093,7 +4129,11 @@ function renderResumo(){
     html+='</div>';
   }
 
-  html+='</section><section class="rs-bloco"><div class="section-title" data-dica-item="cofrinhos">Cofrinhos (saldo até '+monthLabel(currentMonth)+')</div>';
+  html+='</section>';
+  }   /* fim do bloco Metas (aba Metas ligada) */
+
+  if(abaAtiva('cofrinhos')){
+  html+='<section class="rs-bloco"><div class="section-title" data-dica-item="cofrinhos">Cofrinhos (saldo até '+monthLabel(currentMonth)+')</div>';
   var contasComValor=config.contasCofrinho.map(function(conta){
     var saldo=saldoCofrinho(conta, currentMonth);
     return {conta:conta, valor:saldo};
@@ -4108,6 +4148,7 @@ function renderResumo(){
     html+='</div>';
   }
   html+='</section>';
+  }   /* fim do bloco Cofrinhos (aba Cofrinhos ligada) */
 
   document.getElementById('mainContent').innerHTML=html;
   document.querySelectorAll('[data-nav]').forEach(function(row){
@@ -4990,13 +5031,15 @@ function openFaturaInfoSheet(item){
   html+='<div class="field"><label>Valor da fatura</label><input type="text" value="'+formatBRL(item.valor)+'" disabled></div>';
   html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Esta despesa foi gerada pela fatura do cartão. Para ver as compras ou excluir a fatura, use a aba Cartão'+((faturasCache.find(function(x){ return x.id===item.origemFaturaId; })||{}).manual?'; a fatura lançada à mão pode ser editada aqui':'')+'.</p>';
   var fatM=faturasCache.find(function(x){ return x.id===item.origemFaturaId; }), podeEditar=!!(fatM && fatM.manual && !competenciaFechada(fatM.competencia));
+  var cartaoLigado=abaAtiva('cartao');
+  if(!cartaoLigado) html+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin-top:0">A aba Cartão está desligada. Para usá-la, ligue em <b>Configurações → Abas</b>.</p>';
   if(podeEditar) html+='<button class="btn" id="btnEditarFaturaManual" style="margin-bottom:10px">Editar fatura</button>';
-  html+='<button class="btn'+(podeEditar?' secondary':'')+'" id="btnAbrirCartao">Abrir a aba Cartão</button>';
+  if(cartaoLigado) html+='<button class="btn'+(podeEditar?' secondary':'')+'" id="btnAbrirCartao">Abrir a aba Cartão</button>';
   openSheet(html);
   var sheet=document.getElementById('sheet');
   sheet.querySelector('#sheetClose').addEventListener('click', closeSheet);
   if(podeEditar) sheet.querySelector('#btnEditarFaturaManual').addEventListener('click', function(){ openFaturaManualSheet(fatM); });
-  sheet.querySelector('#btnAbrirCartao').addEventListener('click', function(){ closeSheet(); var b=document.querySelector('.bottom-nav [data-tab=cartao]'); if(b) b.click(); if(item.mes!==currentMonth) irParaMes(item.mes); });
+  if(cartaoLigado) sheet.querySelector('#btnAbrirCartao').addEventListener('click', function(){ closeSheet(); var b=document.querySelector('.bottom-nav [data-tab=cartao]'); if(b) b.click(); if(item.mes!==currentMonth) irParaMes(item.mes); });
 }
 
 /* ---- Cartão, segunda etapa (1.8.0): resumo da importação, parceladas, assinaturas e análise da fatura ----
@@ -5204,6 +5247,29 @@ function painelParametrosHtml(){
   h+='<div id="parametrosErro" style="display:none;color:var(--color-negative);font-size:12.5px;margin:-6px 0 10px;"></div>';
   h+='<button class="btn secondary" id="btnSalvarParametros">Salvar parâmetros</button></div>';
   return h;
+}
+/* Configuracoes > Abas (1.12.0): liga e desliga as abas opcionais do rodape; grava na hora em config.abasAtivas */
+function painelAbasHtml(){
+  var h='<div class="config-group"><h3>Abas do app</h3>';
+  h+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin-top:0"><b>Resumo</b> e <b>Lançamentos</b> sempre aparecem. Ligue as outras abas que quiser usar. Desligar só esconde a aba (e os blocos dela no Resumo): nada é apagado e, ao ligar de novo, tudo volta como estava. A escolha entra no backup.</p>';
+  ABAS_OPCIONAIS.forEach(function(a){
+    h+='<label class="aba-opcao"><input type="checkbox" data-aba-opcional="'+a[0]+'"'+(abaAtiva(a[0])?' checked':'')+'><span><b>'+a[1]+'</b><small>'+a[2]+'</small></span></label>';
+  });
+  h+='</div>';
+  return h;
+}
+function ligarAbas(sheet){
+  [].forEach.call(sheet.querySelectorAll('[data-aba-opcional]'), function(chk){
+    chk.addEventListener('change', function(){
+      var novo={};
+      ABAS_OPCIONAIS.forEach(function(a){ var c=sheet.querySelector('[data-aba-opcional="'+a[0]+'"]'); novo[a[0]]=!!(c && c.checked); });
+      var nome=(ABAS_OPCIONAIS.filter(function(a){ return a[0]===chk.getAttribute('data-aba-opcional'); })[0]||[])[1]||'';
+      db.doc('config/geral').update({abasAtivas:novo}).then(function(){
+        showToast(chk.checked ? 'Aba '+nome+' ligada.' : 'Aba '+nome+' desligada. Nada foi apagado.');
+        registrarLog('abas',{abasAtivas:novo});
+      }).catch(function(){ chk.checked=!chk.checked; showToast('Não foi possível salvar a escolha.'); });
+    });
+  });
 }
 function ligarParametros(sheet){
   var b=sheet.querySelector('#btnSalvarParametros'); if(!b) return;
@@ -6805,7 +6871,7 @@ function ativarAbaConfig(sheet, aba){
 function openConfigSheet(){
   /* Configuracoes em abas: todos os paineis ficam na tela e so um aparece (o que foi digitado nao se perde ao trocar de aba) */
   var temNotif=!!(window.FLUI_NOTIF && window.FLUI_NOTIF.disponivel());   /* aba Notificacoes so no app Android */
-  var abas=[['pessoas','Pessoas'],['planejamento','Planejamento'],['despesas','Despesas'],['aparencia','Aparência']];
+  var abas=[['pessoas','Pessoas'],['planejamento','Planejamento'],['despesas','Despesas'],['abas','Abas'],['aparencia','Aparência']];
   if(temNotif) abas.push(['notificacoes','Notificações']);
   abas.push(['backup','Backup']);
   var html='<div class="sheet-header"><h2>Configurações</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
@@ -6839,6 +6905,7 @@ function openConfigSheet(){
   html+=configGroupHtml('Despesas não essenciais','despesasNaoEssenciais',config.despesasNaoEssenciais);
   html+='</div>';
 
+  html+='<div class="cfg-painel" data-painel="abas">'+painelAbasHtml()+'</div>';
   html+='<div class="cfg-painel" data-painel="aparencia">'+painelAparenciaHtml()+'</div>';
   if(temNotif) html+='<div class="cfg-painel" data-painel="notificacoes"><div id="painelNotif"></div></div>';
 
@@ -6870,6 +6937,7 @@ function openConfigSheet(){
   });
   ligarAparencia(sheet);
   ligarParametros(sheet);
+  ligarAbas(sheet);
   sheet.querySelector('#btnAbrirBackup').addEventListener('click', openBackupSheet);
   sheet.querySelector('#btnResetarDados').addEventListener('click', resetarTodosOsDados);
   sheet.querySelector('#btnAbrirDiagnostico').addEventListener('click', openDiagnosticoSheet);
