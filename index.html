@@ -1502,6 +1502,7 @@ function toggleValoresOcultos(){
   try{ localStorage.setItem('valoresOcultos', valoresOcultos?'1':'0'); }catch(e){}
   updateEyeIcon();
   renderCurrentTab();
+  try{ agendarWidget(300); }catch(e){}
 }
 function updateEyeIcon(){
   var icon=document.getElementById('eyeIcon');
@@ -1616,6 +1617,80 @@ function defaultConfig(){
     saldoInicial:0,
     dbVersion:CURRENT_DB_VERSION
   };
+}
+/* Widget "Resumo do mes" da tela inicial (1.13.0, so Android; ver FluiWidgetPlugin/FluiWidgetProvider).
+   O app envia ao plugin nativo um resumo de alguns meses (entradas, despesas e saldo acumulado, JA formatados como no Resumo) e as cores
+   do tema; o widget escolhe o mes de hoje. Com o olho ligado (valoresOcultos) os valores seguem mascarados (formatBRL). Fica so no aparelho.
+   Reenvia (com atraso, so se mudou) ao gravar dados, trocar tema, mexer no olho, abrir e voltar ao app. Na web nao faz nada. */
+var widgetTimer=null, widgetUltimo='';
+function widgetNativo(){ var c=window.Capacitor; return !!(c && c.isNativePlatform && c.isNativePlatform() && c.Plugins && c.Plugins.FluiWidget); }
+function widgetCor(variavel){
+  try{
+    var el=document.createElement('span'); el.style.cssText='position:absolute;visibility:hidden;color:var('+variavel+')';
+    document.body.appendChild(el); var c=getComputedStyle(el).color; document.body.removeChild(el);
+    var m=/rgba?\(([^)]+)\)/.exec(c); if(!m) return '';
+    var p=m[1].split(',').map(function(x){ return Math.max(0,Math.min(255,Math.round(parseFloat(x)||0))); });
+    return '#'+[p[0],p[1],p[2]].map(function(x){ return (x<16?'0':'')+x.toString(16); }).join('').toUpperCase();
+  }catch(e){ return ''; }
+}
+function widgetResumo(){
+  if(!config || !config.mesInicio || !lancamentosCarregados) return null;
+  var ini=config.mesInicio, hoje=todayMonthStr(), ate=shiftMonth(hoje,2), de=shiftMonth(hoje,-1);
+  var porMes={};
+  lancamentosAllCache.forEach(function(l){
+    if(!l.mes) return; var o=porMes[l.mes]||(porMes[l.mes]={e:0,d:0}), v=Number(l.valor||0);
+    if(l.tipo==='entrada') o.e+=v; else if(l.tipo==='despesa') o.d+=v;
+  });
+  var acum=Number(config.saldoInicial||0), meses=[], m=ini, guarda=0;
+  while(m<=ate && guarda++<1200){
+    var o=porMes[m]||{e:0,d:0};
+    acum=roundCents(acum+roundCents(o.e)-roundCents(o.d));
+    if(m>=de) meses.push({m:m, rot:monthLabel(m), e:formatBRL(roundCents(o.e)), d:formatBRL(roundCents(o.d)), s:formatBRL(acum), sn:(!valoresOcultos && acum<0)});
+    m=shiftMonth(m,1);
+  }
+  if(!meses.length) return null;
+  return {v:1, ocultar:!!valoresOcultos, animado:widgetAnimado(), venc:widgetVencimentos(), cores:{fundo:widgetCor('--color-surface'), texto:widgetCor('--color-ink'), suave:widgetCor('--color-ink-soft'), marca:widgetCor('--color-primary'), entrada:widgetCor('--color-primary'), despesa:widgetCor('--color-negative'), ouro:widgetCor('--color-gold'), roxo:widgetCor('--color-purple'), agua:widgetCor('--color-teal'), ardosia:widgetCor('--color-slate')}, meses:meses};
+}
+/* fundo animado dos widgets: ligado por padrao; so neste aparelho (vai no backup junto com as outras preferencias) */
+var WIDGET_ANIM_CHAVE='flui_widget_anim_v1';
+function widgetAnimado(){ try{ return localStorage.getItem(WIDGET_ANIM_CHAVE)!=='0'; }catch(e){ return true; } }
+/* Widget "Vencimentos": despesas com data de cada um dos proximos 10 dias (hoje a hoje+9), para o widget escolher hoje e amanha pela data do
+   aparelho. Por dia: quantidade, total e as 2 maiores (descricao resumida). O app nao tem marcacao de "pago": entram todas as despesas da data. */
+function widgetVencimentos(){
+  var porDia={};
+  lancamentosAllCache.forEach(function(l){
+    if(l.tipo!=='despesa') return;
+    var dia=l.data||(l.mes?l.mes+'-01':''); if(!dia) return;
+    (porDia[dia]=porDia[dia]||[]).push(l);
+  });
+  var out=[], base=new Date(), somas=[];
+  for(var i=0;i<10;i++){
+    var d=new Date(base.getFullYear(), base.getMonth(), base.getDate()+i), iso=d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());
+    var lista=(porDia[iso]||[]).slice().sort(function(a,b){ return Number(b.valor||0)-Number(a.valor||0); });
+    var total=lista.reduce(function(s,l){ return s+Number(l.valor||0); },0);
+    somas.push(total);
+    /* resto[k] = soma das despesas a partir da k-esima (a linha "+N = valor" do widget quando nao cabem todas); resto[0] = total do dia */
+    var resto=[]; for(var k=0;k<=WIDGET_ITENS_DIA;k++){ resto.push(formatBRL(roundCents(lista.slice(k).reduce(function(s,l){ return s+Number(l.valor||0); },0)))); }
+    out.push({d:iso, qtd:lista.length, total:formatBRL(roundCents(total)), resto:resto, itens:lista.slice(0,WIDGET_ITENS_DIA).map(function(l){
+      var t=String(l.descricao||l.categoria||'Despesa').replace(/\s+/g,' ').trim(); if(t.length>34) t=t.slice(0,33)+'…';
+      var g=String(l.categoria||'').replace(/\s+/g,' ').trim(); if(g.length>30) g=g.slice(0,29)+'…';
+      return {t:t, g:g, v:formatBRL(Number(l.valor||0))};
+    })});
+  }
+  /* tp = total do dia + total do dia seguinte (o widget soma "hoje e amanha" sem ter os numeros: com o olho ligado vem mascarado) */
+  out.forEach(function(o,i){ o.tp=formatBRL(roundCents(somas[i]+(i+1<somas.length?somas[i+1]:0))); });
+  return out;
+}
+var WIDGET_ITENS_DIA=6;
+function enviarWidget(){
+  if(!widgetNativo()) return;
+  var r=widgetResumo(); if(!r) return;
+  var s=JSON.stringify(r); if(s===widgetUltimo) return;
+  try{ window.Capacitor.Plugins.FluiWidget.atualizar({json:s}).then(function(){ widgetUltimo=s; }, function(){}); }catch(e){}
+}
+function agendarWidget(ms){
+  if(!widgetNativo()) return;
+  clearTimeout(widgetTimer); widgetTimer=setTimeout(function(){ try{ enviarWidget(); }catch(e){} }, ms==null?2000:ms);
 }
 /* Abas opcionais (1.12.0, pedido do usuario): Resumo e Lancamentos sao fixas; as demais o usuario liga em Configuracoes > Abas.
    config.abasAtivas = {cartao:bool, ...} (vai no backup). Sem o campo (quem ja usava antes da 1.12.0) = todas ligadas.
@@ -2599,7 +2674,7 @@ function perguntarBackupAntesDeRestaurar(){
 var NOME_COLECAO={lancamentos:'Lançamentos',cofrinhos:'Cofrinhos (valores lançados)',cofrinhoRetiradas:'Retiradas de cofrinho',objetivos:'Metas',metaContribuicoes:'Aportes de metas',competenciasFechadas:'Competências fechadas',conferencia_itens:'Conferência (itens)',conferencia_notas:'Conferência (anotações)',financiamentos:'Financiamentos',faturasCartao:'Faturas do cartão'};
 function nomeColecao(c){ return NOME_COLECAO[c]||c; }
 /* preferencias do aparelho no backup (1.9.0, pedido do usuario): vao em todo backup; ao restaurar, o usuario escolhe se aplica */
-var CHAVES_PREFERENCIAS=['tema','flui_tema_claro_v1','flui_tema_escuro_v1','flui_fonte_v1','valoresOcultos','flui_notif_v1'];
+var CHAVES_PREFERENCIAS=['tema','flui_tema_claro_v1','flui_tema_escuro_v1','flui_fonte_v1','valoresOcultos','flui_notif_v1','flui_widget_anim_v1'];
 function coletarPreferencias(){ var p={}; CHAVES_PREFERENCIAS.forEach(function(k){ try{ var v=localStorage.getItem(k); if(v!==null) p[k]=v; }catch(e){} }); return p; }
 function preferenciasValidas(p){
   if(!p || typeof p!=='object' || Array.isArray(p)) return null;
@@ -2609,6 +2684,7 @@ function preferenciasValidas(p){
   if(TEMAS.indexOf(p.flui_tema_escuro_v1)>=0 && !temaClaro(p.flui_tema_escuro_v1)) ok.flui_tema_escuro_v1=p.flui_tema_escuro_v1;
   if(FONTES.indexOf(p.flui_fonte_v1)>=0) ok.flui_fonte_v1=p.flui_fonte_v1;
   if(p.valoresOcultos==='1' || p.valoresOcultos==='0') ok.valoresOcultos=p.valoresOcultos;
+  if(p.flui_widget_anim_v1==='1' || p.flui_widget_anim_v1==='0') ok.flui_widget_anim_v1=p.flui_widget_anim_v1;
   if(typeof p.flui_notif_v1==='string' && p.flui_notif_v1.length<4000){ try{ var o=JSON.parse(p.flui_notif_v1); if(o && typeof o==='object' && !Array.isArray(o)) ok.flui_notif_v1=p.flui_notif_v1; }catch(e){} }
   return Object.keys(ok).length ? ok : null;
 }
@@ -2616,6 +2692,7 @@ function aplicarPreferencias(p){
   Object.keys(p).forEach(function(k){ try{ localStorage.setItem(k, p[k]); }catch(e){} });
   applyTheme(lerTemaSalvo()); aplicarFonte(lerFonteSalva());
   if(p.valoresOcultos!==undefined){ valoresOcultos=(p.valoresOcultos==='1'); updateEyeIcon(); }
+  if(p.flui_widget_anim_v1!==undefined){ try{ agendarWidget(500); }catch(e){} }
   var notifLigada=false;
   if(p.flui_notif_v1 && window.FLUI_NOTIF && window.FLUI_NOTIF.disponivel && window.FLUI_NOTIF.disponivel()){ try{ notifLigada=JSON.parse(p.flui_notif_v1).ativo===true; window.FLUI_NOTIF.reconciliar(); }catch(e){} }
   return notifLigada;
@@ -2893,6 +2970,7 @@ function applyTheme(theme){
   var btn=document.getElementById('btnTheme');
   btn.innerHTML = temaClaro(theme) ? ICON_MOON : ICON_SUN;
   btn.setAttribute('aria-label', temaClaro(theme) ? 'Mudar para tema escuro' : 'Mudar para tema claro');
+  try{ agendarWidget(600); }catch(e){}
 }
 function salvarTema(tema){ try{ localStorage.setItem('tema', tema); localStorage.setItem(temaClaro(tema)?'flui_tema_claro_v1':'flui_tema_escuro_v1', tema); }catch(e){} }
 function ultimoTema(claro){ var s=null; try{ s=localStorage.getItem(claro?'flui_tema_claro_v1':'flui_tema_escuro_v1'); }catch(e){} return (TEMAS.indexOf(s)>=0 && temaClaro(s)===claro) ? s : (claro?'light':'dark'); }
@@ -2928,12 +3006,19 @@ function painelAparenciaHtml(){
   FONTES_APAR.forEach(function(f){ h+='<button type="button" class="apar-op apar-fonte" role="radio" data-fonte="'+f[0]+'" aria-checked="'+(f[0]===fonte?'true':'false')+'"><span class="apar-nome" style="font-family:'+f[3]+'">'+esc(f[1])+'</span><small style="font-family:'+f[4]+'">'+esc(f[2])+'</small><span class="apar-ex" style="font-family:'+f[5]+'">R$ 1.234,56</span></button>'; });
   h+='</div></div>';
   h+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin:0">As escolhas de tema e de fonte valem só neste aparelho e não entram no backup.</p></div>';
+  if(widgetNativo()){   /* widgets da tela inicial existem so no app Android */
+    h+='<div class="config-group"><h3>Widgets da tela inicial</h3>';
+    h+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin-top:0">Para adicionar: segure num espaço vazio da tela inicial, toque em Widgets e escolha o FLUI (Resumo do mês ou Vencimentos).</p>';
+    h+='<label class="drive-auto"><input type="checkbox" id="chkWidgetAnim"'+(widgetAnimado()?' checked':'')+'><span>Efeitos animados: o fundo, com cores suaves e transparentes, e o nome FLUI, com o degradê em movimento lento. Desligue para tudo fixo.</span></label></div>';
+  }
   return h;
 }
 function ligarAparencia(sheet){
   function marcar(attr, valor){ [].forEach.call(sheet.querySelectorAll('['+attr+']'), function(b){ b.setAttribute('aria-checked', b.getAttribute(attr)===valor ? 'true' : 'false'); }); }
   [].forEach.call(sheet.querySelectorAll('[data-tema]'), function(b){ b.addEventListener('click', function(){ var v=b.getAttribute('data-tema'); applyTheme(v); salvarTema(v); marcar('data-tema',v); }); });
   [].forEach.call(sheet.querySelectorAll('[data-fonte]'), function(b){ b.addEventListener('click', function(){ var v=b.getAttribute('data-fonte'); aplicarFonte(v); try{ localStorage.setItem('flui_fonte_v1', v); }catch(e){} marcar('data-fonte',v); }); });
+  var chkAnim=sheet.querySelector('#chkWidgetAnim');
+  if(chkAnim) chkAnim.addEventListener('change', function(){ try{ localStorage.setItem(WIDGET_ANIM_CHAVE, chkAnim.checked?'1':'0'); }catch(e){} agendarWidget(200); showToast(chkAnim.checked?'Efeitos animados dos widgets ligados.':'Efeitos animados dos widgets desligados.'); });
 }
 
 function openSobreFluiSheet(){
@@ -2984,6 +3069,9 @@ document.addEventListener('DOMContentLoaded', function(){
   /* 1.11.0: backup automatico no Google Drive ao abrir e ao voltar para o app */
   setTimeout(function(){ agendarBackupDrive(20000); }, 0);
   try{ document.addEventListener('visibilitychange', function(){ if(!document.hidden) agendarBackupDrive(15000); }); }catch(e){}
+  /* 1.13.0: widget da tela inicial (so Android): envia o resumo ao abrir e ao sair/voltar do app */
+  setTimeout(function(){ agendarWidget(3000); }, 0);
+  try{ document.addEventListener('visibilitychange', function(){ agendarWidget(document.hidden?100:1000); }); }catch(e){}
 });
 document.addEventListener('DOMContentLoaded', function(){
   var overlay=document.getElementById('fluiIntro');
@@ -3175,6 +3263,7 @@ function localGravarTudo(){
     var envelope={engineVersion:LOCAL_ENGINE_VERSION, savedAt:new Date().toISOString(), colecoes:localCache};
     window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(envelope));
     try{ agendarBackupDrive(); }catch(e){}
+    try{ agendarWidget(); }catch(e){}
     return true;
   }catch(e){ return false; }
 }
@@ -3313,7 +3402,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.12.2';
+var APP_VERSION='1.15.0';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
