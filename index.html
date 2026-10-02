@@ -3313,7 +3313,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.12.0';
+var APP_VERSION='1.12.1';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
@@ -3601,7 +3601,7 @@ function renderSetupInicial(){
   html+='<div class="field"><label>Saldo inicial nesse mês (opcional)</label><input type="text" inputmode="decimal" id="setupSaldoInicial" placeholder="0,00"></div>';
   html+='<div id="setupErro" style="display:none;color:var(--color-negative);font-size:13px;margin:-6px 0 10px;"></div>';
   html+='<button class="btn" id="btnSetupContinuar">Continuar</button>';
-  html+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin:14px 0 0">O app começa com <b>Resumo</b> e <b>Lançamentos</b>. Cartão, Cofrinhos, Reserva, Metas e Financiamentos você liga quando quiser em <b>Configurações → Abas</b>.</p>';
+  html+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin:14px 0 0">O app começa com <b>Resumo</b> e <b>Lançamentos</b>. As outras funções (Cartão, Cofrinhos, Reserva, Metas e Financiamentos) você liga quando quiser em <b>Configurações → Funções</b>.</p>';
   html+='</div>';
   document.getElementById('mainContent').innerHTML=html;
   document.getElementById('btnSetupContinuar').addEventListener('click', function(){
@@ -5032,7 +5032,7 @@ function openFaturaInfoSheet(item){
   html+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Esta despesa foi gerada pela fatura do cartão. Para ver as compras ou excluir a fatura, use a aba Cartão'+((faturasCache.find(function(x){ return x.id===item.origemFaturaId; })||{}).manual?'; a fatura lançada à mão pode ser editada aqui':'')+'.</p>';
   var fatM=faturasCache.find(function(x){ return x.id===item.origemFaturaId; }), podeEditar=!!(fatM && fatM.manual && !competenciaFechada(fatM.competencia));
   var cartaoLigado=abaAtiva('cartao');
-  if(!cartaoLigado) html+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin-top:0">A aba Cartão está desligada. Para usá-la, ligue em <b>Configurações → Abas</b>.</p>';
+  if(!cartaoLigado) html+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin-top:0">A função Cartão está desligada. Para usá-la, ligue em <b>Configurações → Funções</b>.</p>';
   if(podeEditar) html+='<button class="btn" id="btnEditarFaturaManual" style="margin-bottom:10px">Editar fatura</button>';
   if(cartaoLigado) html+='<button class="btn'+(podeEditar?' secondary':'')+'" id="btnAbrirCartao">Abrir a aba Cartão</button>';
   openSheet(html);
@@ -5250,8 +5250,8 @@ function painelParametrosHtml(){
 }
 /* Configuracoes > Abas (1.12.0): liga e desliga as abas opcionais do rodape; grava na hora em config.abasAtivas */
 function painelAbasHtml(){
-  var h='<div class="config-group"><h3>Abas do app</h3>';
-  h+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin-top:0"><b>Resumo</b> e <b>Lançamentos</b> sempre aparecem. Ligue as outras abas que quiser usar. Desligar só esconde a aba (e os blocos dela no Resumo): nada é apagado e, ao ligar de novo, tudo volta como estava. A escolha entra no backup.</p>';
+  var h='<div class="config-group"><h3>Funções do app</h3>';
+  h+='<p style="font-size:12.5px;color:var(--color-ink-faint);margin-top:0"><b>Resumo</b> e <b>Lançamentos</b> sempre aparecem. Ligue as outras funções que quiser usar: cada uma ganha uma aba no rodapé. Desligar só esconde a função (a aba e os blocos dela no Resumo): nada é apagado e, ao ligar de novo, tudo volta como estava. A escolha entra no backup.</p>';
   ABAS_OPCIONAIS.forEach(function(a){
     h+='<label class="aba-opcao"><input type="checkbox" data-aba-opcional="'+a[0]+'"'+(abaAtiva(a[0])?' checked':'')+'><span><b>'+a[1]+'</b><small>'+a[2]+'</small></span></label>';
   });
@@ -5265,7 +5265,7 @@ function ligarAbas(sheet){
       ABAS_OPCIONAIS.forEach(function(a){ var c=sheet.querySelector('[data-aba-opcional="'+a[0]+'"]'); novo[a[0]]=!!(c && c.checked); });
       var nome=(ABAS_OPCIONAIS.filter(function(a){ return a[0]===chk.getAttribute('data-aba-opcional'); })[0]||[])[1]||'';
       db.doc('config/geral').update({abasAtivas:novo}).then(function(){
-        showToast(chk.checked ? 'Aba '+nome+' ligada.' : 'Aba '+nome+' desligada. Nada foi apagado.');
+        showToast(chk.checked ? 'Função '+nome+' ligada.' : 'Função '+nome+' desligada. Nada foi apagado.');
         registrarLog('abas',{abasAtivas:novo});
       }).catch(function(){ chk.checked=!chk.checked; showToast('Não foi possível salvar a escolha.'); });
     });
@@ -6871,7 +6871,7 @@ function ativarAbaConfig(sheet, aba){
 function openConfigSheet(){
   /* Configuracoes em abas: todos os paineis ficam na tela e so um aparece (o que foi digitado nao se perde ao trocar de aba) */
   var temNotif=!!(window.FLUI_NOTIF && window.FLUI_NOTIF.disponivel());   /* aba Notificacoes so no app Android */
-  var abas=[['pessoas','Pessoas'],['planejamento','Planejamento'],['despesas','Despesas'],['abas','Abas'],['aparencia','Aparência']];
+  var abas=[['pessoas','Pessoas'],['planejamento','Planejamento'],['despesas','Despesas'],['abas','Funções'],['aparencia','Aparência']];
   if(temNotif) abas.push(['notificacoes','Notificações']);
   abas.push(['backup','Backup']);
   var html='<div class="sheet-header"><h2>Configurações</h2><button class="icon-btn" id="sheetClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
