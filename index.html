@@ -2302,7 +2302,7 @@ function renderResultadoTestes(resultados){
    Login: Android pelo plugin @capgo/capacitor-social-login (o Google bloqueia login dentro do WebView); navegador pelo Google
    Identity Services. Testes: window.__FLUI_DRIVE_MOCK = {login(interativo), fetch(url, opts), logout()} substitui o Google.
    Estado por aparelho em localStorage flui_drive_v1 {conectado, email, auto, ultimo, assinatura, erro}; fora do backup. */
-var GOOGLE_WEB_CLIENT_ID='';   /* ID do cliente OAuth "Web" do projeto FluiApps no Google Cloud (publico, nao e segredo). Vazio = Drive desativado */
+var GOOGLE_WEB_CLIENT_ID='153373085739-h8f8hba39rab314d4obkutaoclnsq2dj.apps.googleusercontent.com';   /* ID do cliente OAuth "Web" do projeto FluiApps no Google Cloud (publico, nao e segredo). Vazio = Drive desativado */
 var DRIVE_ESCOPO='https://www.googleapis.com/auth/drive.appdata', DRIVE_CHAVE='flui_drive_v1', DRIVE_MAX=10, DRIVE_INTERVALO_AUTO=4*3600*1000;
 var DRIVE_API='https://www.googleapis.com/drive/v3/files', DRIVE_UP='https://www.googleapis.com/upload/drive/v3/files';
 var driveToken=null, driveTokenAte=0, driveOcupado=false, driveGoogleIniciado=false, driveAutoTimer=null;
@@ -3282,7 +3282,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.11.0';
+var APP_VERSION='1.11.1';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
