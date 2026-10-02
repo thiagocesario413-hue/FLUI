@@ -2316,7 +2316,7 @@ function mensagemErroDrive(e){
   var c=e&&e.code;
   if(c==='rede') return 'Sem conexão com a internet. Tente de novo quando estiver online.';
   if(c==='cancelado') return 'Conexão com o Google cancelada.';
-  if(c==='auth') return 'Não foi possível entrar na sua conta Google. Toque em "Conectar conta Google" de novo.';
+  if(c==='auth'){ var det=String((e&&e.message)||'').replace(/\s+/g,' ').trim(); if(!det||det==='auth') det=''; return 'Não foi possível entrar na sua conta Google. Toque em "Conectar conta Google" de novo.'+(det?' (Detalhe: '+det.slice(0,140)+')':''); }
   if(c==='config') return 'O backup no Google Drive ainda não está ativado nesta versão do app.';
   if(c==='ocupado') return 'Já existe um backup em andamento. Aguarde um pouco.';
   return 'O Google Drive não respondeu. Tente de novo mais tarde.';
@@ -3282,7 +3282,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.11.1';
+var APP_VERSION='1.11.2';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
