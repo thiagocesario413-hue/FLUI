@@ -3,7 +3,7 @@
    ATUALIZACAO: para publicar uma versao nova, altere VERSAO abaixo (junto com APP_VERSION no index.html).
    Como o conteudo do sw.js muda, o navegador instala o novo cache e apaga o antigo. Os DADOS do usuario
    ficam no localStorage e nao sao tocados pelo service worker. */
-var VERSAO = '1.15.0';
+var VERSAO = '1.16.0';
 var CACHE = 'flui-' + VERSAO;
 var ARQUIVOS = [
   './',
@@ -51,6 +51,7 @@ self.addEventListener('fetch', function(e){
   if(req.method !== 'GET') return;
   var url = new URL(req.url);
   if(url.origin !== self.location.origin) return;            /* nunca intercepta outros dominios (o app nao usa nenhum) */
+  if(/\/beta\.json$/.test(url.pathname)) return;             /* 1.16.0: o status do beta e sempre buscado na rede, nunca do cache (ver o bloco "Controle do beta" do index.html) */
   e.respondWith(
     caches.match(req, {ignoreSearch: true}).then(function(achado){
       if(achado) return achado;

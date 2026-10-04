@@ -17,3 +17,7 @@
 
 /icons/*
   Cache-Control: public, max-age=604800
+
+/beta.json
+  Cache-Control: no-store
+  Access-Control-Allow-Origin: *

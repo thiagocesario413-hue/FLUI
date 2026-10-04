@@ -566,6 +566,18 @@ html{touch-action:manipulation;}
 .rs-bloco > .dica-txt{margin:8px 0 0;}
 /* explicacao aberta entre duas linhas de uma lista (1.10.0): ocupa a largura da lista, sem cantos */
 .ledger > .dica-txt{margin:0;border-radius:0;}
+/* ---- Controle do beta (1.16.0): identificacao e bloqueio; fica acima dos Termos (z-index 95) e abaixo da introducao ---- */
+.beta-tela{position:fixed;inset:0;z-index:97;background:var(--color-bg);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:calc(22px + var(--safe-top)) 18px calc(26px + var(--safe-bottom));box-sizing:border-box;}
+.beta-box{width:100%;max-width:480px;margin:5vh auto 0;}
+.beta-box h2{font-size:21px;margin:14px 0 8px;}
+.beta-box p{color:var(--color-ink-soft);font-size:14px;line-height:1.5;margin:0 0 12px;}
+.beta-box p.beta-msg{color:var(--color-ink);}
+.beta-box .field label{font-size:13px;}
+.beta-box input[type=email]{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--color-border);background:var(--color-surface);font-size:16px;color:var(--color-ink);-webkit-appearance:none;appearance:none;box-sizing:border-box;min-width:0;}
+.beta-erro{color:var(--color-negative);font-size:13px;margin:-4px 0 10px;min-height:1.2em;}
+.beta-box .btn{width:100%;margin-top:8px;}
+.beta-status{font-size:13px;color:var(--color-ink);min-height:1.3em;margin:10px 0 0;}
+.beta-box p.beta-rodape{font-size:12px;line-height:1.45;margin-top:16px;}
 /* ---- Termos de Uso (1.11.0): tela de aceite (acima de tudo, menos a introducao) e leitura depois ---- */
 #termosAceite{position:fixed;inset:0;z-index:95;background:var(--color-bg);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:calc(22px + var(--safe-top)) 18px calc(26px + var(--safe-bottom));box-sizing:border-box;}
 .termos-box{max-width:520px;margin:0 auto;}
@@ -2592,7 +2604,7 @@ function atualizarPainelDrive(){
   if(!driveDisponivel()){
     h+='<p style="font-size:13px;color:var(--color-ink-faint);margin-top:0">O backup no Google Drive ainda não está ativado nesta versão do app.</p>';
   } else if(!st.conectado){
-    h+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Guarde uma cópia dos seus dados no <b>Google Drive da sua conta</b>, numa pasta reservada ao FLUI (o app não vê os seus outros arquivos). Opcional: a FluiApps não vê esses dados. Com o backup automático, a cópia é atualizada sozinha quando você usa o app.</p>';
+    h+='<p style="font-size:13px;color:var(--color-ink-soft);margin-top:0">Guarde uma cópia dos seus dados no <b>Google Drive da sua conta</b>, numa pasta reservada ao FLUI (o app não vê os seus outros arquivos). Opcional: a VoceFlui não vê esses dados. Com o backup automático, a cópia é atualizada sozinha quando você usa o app.</p>';
     h+='<button class="btn" id="btnDriveConectar">Conectar conta Google</button>';
   } else {
     var d=st.ultimo?new Date(st.ultimo):null;
@@ -3402,7 +3414,7 @@ function renderRecuperacaoLocal(){
 }
 
 /* ---------- subscriptions ---------- */
-var APP_VERSION='1.15.0';
+var APP_VERSION='1.16.0';
 var appNeedsSetup=false;
 function subscribeConfig(){
   var ref=db.doc('config/geral');
@@ -6926,7 +6938,7 @@ function openAjudaSheet(manterBusca){
   html+=htmlCampoBusca('ajudaBuscaInput','Buscar na Ajuda (ex.: backup, meta, fatura)',ajudaBusca);
   html+='<div id="ajudaLista"></div>';
   html+='<div class="drive-links" style="justify-content:center;margin-top:16px"><button class="link-btn" data-doc-legal="termos">Termos de Uso</button><button class="link-btn" data-doc-legal="politica">Política de Privacidade</button></div>';
-  html+='<div style="text-align:center;font-size:11.5px;color:var(--color-ink-faint);margin-top:10px">Versão '+APP_VERSION+' · FluiApps · fluiapps@gmail.com</div>';
+  html+='<div style="text-align:center;font-size:11.5px;color:var(--color-ink-faint);margin-top:10px">Versão '+APP_VERSION+' · VoceFlui · fluiapps@gmail.com</div>';
   openSheet(html);
   var sheet=document.getElementById('sheet');
   sheet.querySelector('#sheetClose').addEventListener('click', closeSheet);
@@ -7197,6 +7209,8 @@ window.FLUI_BRIDGE={
   openSheet:openSheet,
   closeSheet:closeSheet,
   abrirBackup:openBackupSheet,
+  versao:function(){ return APP_VERSION; },
+  exportarBackup:function(){ return exportarBackupCompleto(); },   /* 1.16.0: botao "Exportar meus dados" da tela de bloqueio do beta */
   showToast:showToast,
   esc:esc
 };
@@ -7249,11 +7263,162 @@ window.FLUI_BRIDGE={
 })();
 </script>
 <script>
+/* ===== Controle do beta (1.16.0) =====
+   Tela de identificacao (e-mail) na primeira abertura e dois interruptores lidos de um arquivo publico do proprio site, beta.json:
+   (1) GLOBAL: "ativo": false, validade vencida ou "versaoMinima" maior que a do app bloqueiam o app para todos;
+   (2) POR PESSOA: o e-mail digitado vira um codigo (SHA-256 de sal + ":" + e-mail) e, se estiver na lista "revogados", so aquela pessoa e bloqueada.
+   BLOQUEAR = tela cheia com a mensagem e o botao "Exportar meus dados": NADA e apagado. Sem internet vale o ultimo estado conhecido; passando a
+   tolerancia (padrao 14 dias) sem conseguir confirmar, bloqueia ate conectar. O e-mail fica SO neste aparelho (flui_beta_v1, fora do backup);
+   nada do usuario e enviado: o app so BAIXA o beta.json. Quem administra o arquivo: gerenciar-beta.js (raiz do projeto).
+   RETIRAR O BETA: BETA_CONTROLE=false (ou apagar este bloco) e publicar a versao. Nao confundir com os Termos (bloco seguinte).
+   Limites conhecidos: o e-mail nao e verificado e o app roda no aparelho, entao quem for tecnico consegue burlar; serve a convidados cooperativos. */
+(function(){
+  var BETA_CONTROLE=true;
+  var CHAVE='flui_beta_v1';
+  var URL_NATIVO='https://beta.voceflui.com.br/beta.json';   /* o app Android abre em https://localhost, entao busca o arquivo no site */
+  var TOLERANCIA_PADRAO=14, A_CADA_MS=30*60*1000, ENTRE_MS=60*1000;
+  if(!BETA_CONTROLE || location.protocol==='file:') return;
+  var nativo=false; try{ nativo=!!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()); }catch(e){}
+  var st=ler(), ultimaChecagem=0, emCurso=null;
+
+  function ler(){ try{ var o=JSON.parse(localStorage.getItem(CHAVE)||'null'); if(o && typeof o==='object' && typeof o.email==='string' && o.email) return o; }catch(e){} return null; }
+  function gravar(){ try{ localStorage.setItem(CHAVE, JSON.stringify(st)); }catch(e){} }
+  function agoraISO(){ return new Date().toISOString(); }
+  function p2(n){ return (n<10?'0':'')+n; }
+  function diaLocal(d){ return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate()); }
+  function hoje(){ var h=diaLocal(new Date()); if(st && st.maxData && st.maxData>h) h=st.maxData; return h; }   /* relogio voltado para tras nao reabre o app */
+  function diasDesde(iso){ var t=Date.parse(iso); if(isNaN(t)) return 0; return Math.floor((Date.now()-t)/86400000); }
+  function dataBR(iso){ var p=String(iso||'').split('-'); return p.length===3 ? p[2]+'/'+p[1]+'/'+p[0] : String(iso||''); }
+  function cmpVersao(a,b){ var x=String(a||'0').split('.'), y=String(b||'0').split('.'); for(var i=0;i<Math.max(x.length,y.length);i++){ var m=parseInt(x[i]||'0',10)||0, n=parseInt(y[i]||'0',10)||0; if(m!==n) return m<n?-1:1; } return 0; }
+  function versaoApp(){ try{ return window.FLUI_BRIDGE.versao(); }catch(e){ return '0'; } }
+  function normalizar(e){ return String(e||'').trim().toLowerCase(); }
+  function emailValido(e){ return e.length<=120 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e); }
+  function sha256(txt){
+    try{ if(window.crypto && crypto.subtle && window.TextEncoder){ return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(function(b){ return Array.prototype.map.call(new Uint8Array(b), function(x){ return (x<16?'0':'')+x.toString(16); }).join(''); }); } }catch(e){}
+    return Promise.reject(new Error('sem-crypto'));
+  }
+  /* aceita so os campos esperados, com os tipos conferidos (nada do arquivo vira HTML) */
+  function limpar(j){
+    if(!j || typeof j!=='object' || j.v!==1) return null;
+    var r={ ativo: j.ativo!==false, mensagem: typeof j.mensagem==='string' ? j.mensagem.slice(0,400) : '',
+      validade: /^\d{4}-\d{2}-\d{2}$/.test(j.validade||'') ? j.validade : '',
+      versaoMinima: /^\d+(\.\d+){0,3}$/.test(j.versaoMinima||'') ? j.versaoMinima : '',
+      toleranciaDias: (typeof j.toleranciaDias==='number' && j.toleranciaDias>=1 && j.toleranciaDias<=365) ? Math.floor(j.toleranciaDias) : TOLERANCIA_PADRAO,
+      sal: typeof j.sal==='string' ? j.sal.slice(0,64) : '', revogados: [] };
+    if(Array.isArray(j.revogados)) j.revogados.forEach(function(h){ if(typeof h==='string' && /^[0-9a-f]{64}$/.test(h) && r.revogados.length<5000) r.revogados.push(h); });
+    return r;
+  }
+  function buscar(){
+    var url=(nativo ? URL_NATIVO : 'beta.json'); url+=(url.indexOf('?')<0?'?':'&')+'t='+Date.now();
+    var ctl=(typeof AbortController!=='undefined') ? new AbortController() : null, t=null;
+    if(ctl) t=setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 8000);
+    var op={cache:'no-store'}; if(ctl) op.signal=ctl.signal; if(nativo) op.credentials='omit';
+    return fetch(url, op).then(function(r){ if(t) clearTimeout(t); if(!r.ok) throw new Error('http'); return r.json(); })
+      .then(limpar).catch(function(){ if(t) clearTimeout(t); return null; });
+  }
+  /* devolve null (liberado) ou {k, titulo, texto}; "revogado" ja vem calculado (true/false) */
+  function motivo(r, revogado){
+    if(!r.ativo) return {k:'encerrado', titulo:'Acesso beta encerrado', texto:'O período de testes do FLUI foi encerrado.'};
+    if(revogado) return {k:'revogado', titulo:'Seu acesso beta foi encerrado', texto:'Se você acha que isso é um engano, escreva para fluiapps@gmail.com.'};
+    if(r.validade && hoje()>r.validade) return {k:'expirado', titulo:'O período beta terminou', texto:'O prazo de testes terminou em '+dataBR(r.validade)+'.'};
+    if(r.versaoMinima && cmpVersao(versaoApp(), r.versaoMinima)<0) return {k:'versao', titulo:'Atualização necessária', texto:'Esta versão de testes não é mais aceita. '+(nativo?'Peça a versão nova a quem convidou você.':'Atualize o aplicativo para continuar.')};
+    return null;
+  }
+  /* sem resposta valida do arquivo: vale o ultimo estado conhecido e a tolerancia */
+  function decidirSemResposta(){
+    var g=st && st.regras, tol=(g && g.toleranciaDias) || TOLERANCIA_PADRAO;
+    var dec=g ? motivo(g, st.revogado===true) : null;
+    if(!dec && st && diasDesde(st.ultimoOk || st.desde)>=tol) dec={k:'offline', titulo:'Conecte-se à internet', texto:'Faz mais de '+tol+' dias que o seu acesso beta não é confirmado. Conecte-se à internet para continuar.'};
+    return dec;
+  }
+  function verificar(){
+    if(!st) return Promise.resolve();
+    if(emCurso) return emCurso;
+    ultimaChecagem=Date.now();
+    emCurso=buscar().then(function(r){
+      var h=diaLocal(new Date()); if(!st.maxData || h>st.maxData) st.maxData=h;
+      if(!r){ gravar(); return decidirSemResposta(); }
+      st.ultimoOk=agoraISO();
+      st.regras={ativo:r.ativo, mensagem:r.mensagem, validade:r.validade, versaoMinima:r.versaoMinima, toleranciaDias:r.toleranciaDias};
+      return sha256(r.sal+':'+st.email).catch(function(){ return ''; }).then(function(hash){
+        st.hash=hash; st.revogado=!!hash && r.revogados.indexOf(hash)>=0; gravar();
+        return motivo(r, st.revogado);
+      });
+    }).then(function(dec){ emCurso=null; aplicar(dec); }, function(){ emCurso=null; });
+    return emCurso;
+  }
+  function aplicar(dec){ if(dec) bloquear(dec); else desbloquear(); }
+  function el(tag, cls, txt){ var e=document.createElement(tag); if(cls) e.className=cls; if(txt!=null) e.textContent=txt; return e; }
+  function desbloquear(){ var ov=document.getElementById('betaBloqueio'); if(ov && ov.parentNode) ov.parentNode.removeChild(ov); }
+  function bloquear(dec){
+    var ov=document.getElementById('betaBloqueio');
+    if(!ov){ ov=el('div','beta-tela'); ov.id='betaBloqueio'; ov.setAttribute('role','alertdialog'); ov.setAttribute('aria-modal','true'); document.body.appendChild(ov); }
+    ov.setAttribute('data-motivo', dec.k);
+    ov.innerHTML='';
+    var box=el('div','beta-box'); ov.appendChild(box);
+    var marca=el('span','flui-wordmark flui-grad-text'); marca.innerHTML='FLU<em>I</em>'; box.appendChild(marca);
+    box.appendChild(el('h2', null, dec.titulo));
+    box.appendChild(el('p', null, dec.texto));
+    var msg=st && st.regras && st.regras.mensagem; if(msg) box.appendChild(el('p','beta-msg',msg));
+    box.appendChild(el('p', null, 'Os seus dados continuam guardados neste aparelho. Antes de sair, você pode exportar um backup.'));
+    var info=el('p','beta-status'); info.setAttribute('role','status'); info.setAttribute('aria-live','polite');
+    var br=null; try{ br=window.FLUI_BRIDGE; }catch(e){}
+    if(br && br.exportarBackup){
+      var bx=el('button','btn secondary','Exportar meus dados'); bx.type='button';
+      bx.addEventListener('click', function(){ info.textContent='Gerando o backup…'; try{ br.exportarBackup().then(function(){ info.textContent='Backup gerado. Guarde o arquivo em um lugar seguro.'; }, function(){ info.textContent='Não foi possível gerar o backup.'; }); }catch(e){ info.textContent='Não foi possível gerar o backup.'; } });
+      box.appendChild(bx);
+    }
+    if(dec.k==='versao' && !nativo){
+      var ba=el('button','btn','Atualizar agora'); ba.type='button';
+      ba.addEventListener('click', function(){ info.textContent='Atualizando…'; function r(){ location.reload(); } try{ navigator.serviceWorker.getRegistration().then(function(g){ return g ? g.update() : null; }).then(r, r); }catch(e){ r(); } });
+      box.appendChild(ba);
+    }
+    var bt=el('button', dec.k==='versao' && !nativo ? 'btn secondary' : 'btn', 'Tentar de novo'); bt.type='button';
+    bt.addEventListener('click', function(){ info.textContent='Verificando…'; verificar().then(function(){ if(document.getElementById('betaBloqueio')) info.textContent='Ainda não foi possível liberar o acesso.'; }); });
+    box.appendChild(bt); box.appendChild(info);
+    box.appendChild(el('p','beta-rodape','VoceFlui · fluiapps@gmail.com'));
+  }
+  function mostrarEntrada(){
+    if(document.getElementById('betaEntrada')) return;
+    var ov=el('div','beta-tela'); ov.id='betaEntrada'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true'); ov.setAttribute('aria-labelledby','betaTitulo');
+    ov.innerHTML='<div class="beta-box"><span class="flui-wordmark flui-grad-text">FLU<em>I</em></span>'+
+      '<h2 id="betaTitulo">Acesso beta</h2>'+
+      '<p>Esta é uma versão de testes do FLUI, só para pessoas convidadas. Informe o e-mail com o qual você pediu acesso.</p>'+
+      '<form id="betaForm" novalidate><div class="field"><label for="betaEmail">Seu e-mail</label><input type="email" id="betaEmail" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="120"></div>'+
+      '<div class="beta-erro" id="betaErro" role="alert"></div>'+
+      '<button type="submit" class="btn" id="betaEntrar">Entrar</button></form>'+
+      '<p class="beta-rodape">O seu e-mail fica só neste aparelho. De tempos em tempos o aplicativo baixa pela internet uma lista de acessos encerrados; nenhum dado seu é enviado. Para pedir acesso, escreva para fluiapps@gmail.com.</p></div>';
+    document.body.appendChild(ov);
+    var form=ov.querySelector('#betaForm'), campo=ov.querySelector('#betaEmail'), erro=ov.querySelector('#betaErro');
+    form.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      var e=normalizar(campo.value);
+      if(!emailValido(e)){ erro.textContent='Digite um e-mail válido, como nome@exemplo.com.'; campo.focus(); return; }
+      st={email:e, desde:agoraISO(), ultimoOk:'', maxData:diaLocal(new Date()), regras:null, hash:'', revogado:false};
+      gravar();
+      if(ov.parentNode) ov.parentNode.removeChild(ov);
+      verificar();
+    });
+    try{ campo.focus(); }catch(e){}
+  }
+  function iniciar(){
+    if(!st){ mostrarEntrada(); return; }
+    aplicar(decidirSemResposta());   /* mostra o bloqueio na hora, mesmo sem internet, se o ultimo estado ja era de bloqueio */
+    verificar();
+  }
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden && st && Date.now()-ultimaChecagem>=ENTRE_MS) verificar(); });
+  window.addEventListener('online', function(){ if(st) verificar(); });
+  setInterval(function(){ if(st && !document.hidden) verificar(); }, A_CADA_MS);
+  window.FLUI_BETA={ estado:function(){ return st ? JSON.parse(JSON.stringify(st)) : null; }, verificar:verificar };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+})();
+</script>
+<script>
 /* ===== Termos de Uso e Politica de Privacidade (1.11.0) =====
    Os textos vem de TERMOS-DE-USO.md e POLITICA-DE-PRIVACIDADE.md (aprovados pelo usuario), convertidos por
    _test/manual/gerar-docs-legais.js --aplicar (entre os marcadores abaixo). Nao edite o texto aqui: edite o .md e aplique de novo.
    Aceite: registrado SO no aparelho (localStorage flui_termos_v1 = {versao, aceitoEm}); fora do backup. Subir VERSAO_TERMOS pede novo aceite. */
-/*DOCS-INICIO*/window.FLUI_DOCS={"termos":{"titulo":"Termos de Uso do FLUI","versao":"1","atualizacao":"1º de outubro de 2026","blocos":[{"p":"Ao tocar em <b>\"Aceitar e continuar\"</b>, você declara que leu e concorda com estes Termos de Uso e com a <b>Política de Privacidade</b> do FLUI. Se não concordar, não use o aplicativo."},{"h":"1. O que é o FLUI"},{"p":"O FLUI é um aplicativo de <b>planejamento financeiro pessoal</b>. Ele ajuda você a organizar entradas, despesas, cofrinhos, reserva de segurança, metas, financiamentos e as faturas do cartão de crédito, e mostra resumos, gráficos e projeções a partir do que <b>você</b> registra."},{"h":"2. O que o FLUI não é"},{"li":["O FLUI <b>não é um banco</b> nem uma instituição financeira. Ele <b>não movimenta dinheiro</b>, não faz pagamentos, não acessa a sua conta bancária e não se conecta ao seu banco.","O FLUI <b>não é consultoria financeira, contábil, jurídica ou de investimentos</b>. Resumos, alertas, percentuais e projeções são <b>informativos</b> e servem para ajudar na sua organização. <b>As decisões sobre o seu dinheiro são sempre suas.</b>"]},{"h":"3. Seus dados e o backup"},{"li":["Os dados que você registra ficam <b>guardados no seu aparelho</b>. A FluiApps <b>não recebe, não vê e não guarda</b> esses dados.","<b>O backup é responsabilidade sua.</b> Se você desinstalar o aplicativo, limpar os dados dele, perder ou trocar o aparelho <b>sem ter um backup</b>, os dados <b>serão perdidos</b> e a FluiApps não terá como recuperá-los.","O FLUI oferece duas formas de backup: o <b>arquivo de backup</b>, que você salva onde quiser, e, se você quiser, o <b>backup no Google Drive da sua própria conta Google</b>. Os detalhes estão na Política de Privacidade."]},{"h":"4. Leitura das faturas do cartão"},{"li":["A importação da fatura em PDF é feita <b>no seu aparelho</b>, de forma automática, e <b>pode conter erros</b> (por exemplo, quando o banco muda o formato da fatura).","O FLUI confere as somas antes de importar, mas <b>cabe a você conferir</b> os valores com a fatura original.","A leitura de faturas de bancos sem leitor próprio é <b>experimental</b>.","Quando você escolhe <b>\"Importar com ajuste\"</b>, a diferença entre as compras lidas e o total da fatura vira uma linha de ajuste; a despesa lançada é o total impresso na fatura."]},{"h":"5. Cálculos e projeções"},{"p":"Saldos, percentuais da renda, projeções de parcelas e metas são <b>calculados a partir dos dados que você informou</b> e dependem deles estarem corretos e completos. São <b>estimativas</b>, não garantias."},{"h":"6. Avisos (notificações)"},{"p":"Os avisos são <b>opcionais</b>, criados e mostrados no próprio aparelho. O Android ou o fabricante do celular podem atrasar ou bloquear avisos (por exemplo, por economia de bateria). Não dependa somente deles para pagar contas em dia."},{"h":"7. Uso permitido"},{"p":"Você pode usar o FLUI para <b>organizar as suas finanças pessoais e familiares</b>. Não é permitido copiar, modificar, descompilar ou redistribuir o aplicativo, nem usá-lo para atividades ilegais."},{"h":"8. Disponibilidade e responsabilidade"},{"li":["O FLUI é oferecido <b>no estado em que se encontra</b>. A FluiApps se esforça para manter o aplicativo correto e funcionando, mas <b>não garante</b> que ele estará livre de erros ou disponível o tempo todo.","Na máxima extensão permitida pela lei, a FluiApps <b>não se responsabiliza</b> por perdas decorrentes de: falta de backup; decisões financeiras tomadas com base no aplicativo; dados digitados ou importados incorretamente e não conferidos; falhas do aparelho, do sistema ou de serviços de terceiros (como o Google Drive).","Nada nestes termos limita direitos que a lei garante a você, inclusive os do <b>Código de Defesa do Consumidor</b>."]},{"h":"9. Serviços de terceiros"},{"p":"O backup no Google Drive usa serviços do <b>Google</b>, sujeitos aos termos e à política de privacidade do Google. O uso é <b>opcional</b> e pode ser desligado a qualquer momento."},{"h":"10. Propriedade intelectual"},{"p":"O nome FLUI, o logotipo, o desenho das telas e o código do aplicativo pertencem à FluiApps (ou são usados com permissão, como as bibliotecas de código aberto, cada uma com a sua licença)."},{"h":"11. Assinatura <i>(texto provisório: as condições comerciais ainda serão definidas)</i>"},{"li":["O FLUI poderá ser oferecido mediante <b>assinatura</b>, contratada e cobrada <b>pela loja de aplicativos</b> (por exemplo, Google Play), com os preços e períodos informados na própria loja antes da contratação.","A assinatura pode ter <b>renovação automática</b>, conforme as regras da loja, e pode ser <b>cancelada a qualquer momento</b> nas configurações de assinatura da loja; o cancelamento vale para o período seguinte.","Pedidos de reembolso seguem as regras da loja e a lei, inclusive o <b>direito de arrependimento</b> do Código de Defesa do Consumidor, quando aplicável.","Se a assinatura terminar, <b>os seus dados continuam no seu aparelho</b> e no seu backup."]},{"h":"12. Mudanças nestes termos"},{"p":"Estes termos podem ser atualizados. Quando a mudança for relevante, o FLUI mostrará a nova versão e pedirá <b>um novo aceite</b> antes de continuar."},{"h":"13. Lei aplicável"},{"p":"Estes termos seguem as <b>leis do Brasil</b>. Eventuais questões serão resolvidas no foro do domicílio do usuário, como garante a lei de defesa do consumidor."},{"h":"14. Contato"},{"p":"Dúvidas, sugestões ou problemas: <b>fluiapps@gmail.com</b>"}]},"politica":{"titulo":"Política de Privacidade do FLUI","versao":"2 (com backup opcional no Google Drive)","atualizacao":"1º de outubro de 2026","blocos":[{"h":"Em resumo"},{"li":["<b>A FluiApps não coleta nenhum dado seu.</b> Tudo o que você registra fica <b>no seu aparelho</b>.","<b>Não existe conta no FLUI</b>, nem cadastro, anúncios, rastreadores ou ferramentas de análise de uso.","O <b>backup no Google Drive é opcional</b>: se você ligar, a cópia vai <b>direto do seu aparelho para o Google Drive da sua conta Google</b>, numa pasta reservada ao app. <b>A FluiApps não tem servidor e não vê esses dados.</b>","O app usa a internet <b>somente</b> para esse backup no Google Drive. <b>Sem ligar o backup no Drive, nada sai do aparelho</b>, e o app funciona inteiro em modo avião."]},{"h":"1. O que o FLUI faz com as suas informações"},{"p":"O FLUI é um aplicativo para organizar suas finanças: entradas, despesas, cofrinhos, reserva de segurança, metas, financiamentos e faturas do cartão. Os dados que você digita ou importa (valores, descrições, categorias, nomes de pessoas ou contas, compras das faturas) ficam <b>guardados no armazenamento interno do próprio aplicativo</b>, no seu aparelho."},{"p":"Esses dados <b>não são enviados para a FluiApps</b>. Nós <b>não temos acesso</b> a eles e não conseguimos vê-los, recuperá-los nem apagá-los por você."},{"h":"2. Backup no Google Drive (opcional)"},{"p":"Se você tocar em <b>\"Conectar conta Google\"</b> (Configurações, aba Backup):"},{"li":["<b>O que é acessado:</b> o FLUI pede ao Google permissão <b>somente</b> para a <b>pasta reservada ao aplicativo</b> no seu Google Drive. Com essa permissão, o FLUI <b>não vê</b> seus outros arquivos, fotos ou documentos do Drive. O app também mostra o <b>e-mail da conta</b> conectada, para você saber em qual conta está o backup; esse e-mail fica só no aparelho.","<b>O que é enviado:</b> o <b>arquivo de backup do FLUI</b> (com todos os dados que você registrou e as preferências do app), do seu aparelho <b>direto para o Google</b>. A FluiApps não tem servidor no meio do caminho.","<b>Quando:</b> quando você toca em \"Fazer backup agora\" e, se você ligar o <b>backup automático</b>, de tempos em tempos quando houver mudanças e conexão.","<b>Como fica guardado:</b> pelo Google, na sua conta, segundo a Política de Privacidade do Google (https://policies.google.com/privacy). O arquivo <b>não é criptografado pelo FLUI</b>; a proteção é a da sua conta Google (use senha forte e verificação em duas etapas).","<b>Como parar e apagar:</b> toque em <b>\"Desconectar\"</b> no app; para apagar as cópias, use <b>\"Apagar backups do Google Drive\"</b> no app ou, no Google Drive, em Configurações → Gerenciar apps → FLUI → \"Excluir dados ocultos do app\". Você também pode retirar o acesso em myaccount.google.com/permissions (https://myaccount.google.com/permissions)."]},{"h":"3. O que o FLUI não faz"},{"li":["Não cria conta e não pede telefone, CPF ou documentos.","Não usa a sua localização, a câmera, o microfone nem os seus contatos. Só lê um arquivo seu quando <b>você escolhe</b> importar uma fatura em PDF ou restaurar um backup.","Não mostra anúncios e não usa publicidade de terceiros.","Não usa Google Analytics, Firebase ou qualquer outro serviço de análise ou de relatório de erros.","Não vende, aluga nem compartilha informações com ninguém."]},{"h":"4. Permissões do aplicativo (Android)"},{"li":["<b>Internet</b>: <b>Somente</b> para o login com Google e o backup no Google Drive, quando você liga. Sem isso ligado, nada é enviado","<b>Notificações</b>: Mostrar os avisos que você ligar (vencimento de parcela, competência aberta, fim do mês, lembrete de backup). Por padrão, os textos não trazem valores nem nomes","<b>Receber aviso de que o aparelho reiniciou</b>: Reprogramar os avisos depois que o celular é reiniciado","<b>Manter o aparelho ativo</b>: Permite que o Android entregue o aviso na hora programada"]},{"h":"5. Arquivo de backup e exportação (você no controle)"},{"p":"O FLUI também gera um <b>arquivo de backup</b> e exporta <b>planilhas (CSV)</b> e <b>relatórios em PDF</b> quando <b>você toca no botão</b>. O arquivo vai para o menu de compartilhamento do aparelho, e <b>você escolhe</b> o destino."},{"li":["Esses arquivos contêm <b>todos os dados</b> que você registrou e <b>não são criptografados</b>. Guarde-os em local seguro.","Depois que você compartilha o arquivo, o destino escolhido passa a cuidar dele, segundo as regras dele.","O backup automático do Android está <b>desligado</b> para este app, de propósito. Para trocar de aparelho, use o arquivo de backup ou o backup no Google Drive."]},{"h":"6. Termos de Uso"},{"p":"O registro de que você aceitou os <b>Termos de Uso</b> (versão e data/hora) fica <b>somente no seu aparelho</b>."},{"h":"7. Por quanto tempo os dados ficam guardados"},{"li":["<b>No aparelho:</b> até você apagá-los (Configurações, aba Backup, \"Zona de risco\", \"Resetar todos os dados\") ou desinstalar o app.","<b>No Google Drive (se você usar):</b> o FLUI mantém os <b>últimos 10 backups</b> e apaga os mais antigos. Ficam lá até você apagá-los como descrito no item 2."]},{"h":"8. Versão para navegador (iPhone e computador)"},{"p":"O FLUI também pode ser usado em um navegador e instalado na tela inicial. Os dados ficam <b>no armazenamento do próprio navegador</b>, no seu aparelho, e também <b>não são enviados</b> para nós. A página é hospedada no <b>GitHub Pages</b>, que pode guardar registros técnicos comuns de acesso (como a data e o endereço IP de quem baixa os arquivos da página), segundo a política do GitHub. Esses registros <b>não incluem</b> os seus dados financeiros. O backup no Google Drive funciona do mesmo jeito descrito no item 2."},{"h":"9. Segurança"},{"p":"A segurança dos dados depende também do <b>bloqueio de tela</b> do seu aparelho e da <b>proteção da sua conta Google</b> (se usar o backup no Drive). Recomendamos bloqueio por senha, digital ou reconhecimento facial, manter o sistema atualizado e ativar a verificação em duas etapas no Google."},{"h":"10. Seus direitos (LGPD)"},{"p":"A Lei Geral de Proteção de Dados (Lei 13.709/2018) garante a você direitos sobre os seus dados pessoais, como acesso, correção e exclusão. Como a FluiApps <b>não recebe nem armazena</b> os seus dados, <b>não há nada nos nossos sistemas</b> para acessar, corrigir ou excluir: você tem controle total no aplicativo, no seu aparelho e na sua conta Google. Em caso de dúvida, escreva para <b>fluiapps@gmail.com</b>."},{"h":"11. Crianças"},{"p":"O FLUI é um aplicativo de finanças pessoais e <b>não é direcionado a crianças</b>."},{"h":"12. Bibliotecas e serviços de terceiros"},{"p":"O aplicativo inclui bibliotecas de código aberto (para gerar PDF, ler PDF, agendar avisos e fazer o login com Google). As de PDF e de avisos funcionam <b>inteiramente dentro do aparelho</b>. A de login e o backup usam os <b>serviços do Google</b>, somente quando você liga o backup no Drive."},{"h":"13. Mudanças nesta política"},{"p":"Se o FLUI mudar de modo que afete a sua privacidade, esta política será atualizada <b>antes</b>, a data no topo será alterada e o app pedirá um novo aceite."},{"h":"14. Contato"},{"p":"Dúvidas sobre esta política: <b>fluiapps@gmail.com</b>"}]}};/*DOCS-FIM*/
+/*DOCS-INICIO*/window.FLUI_DOCS={"termos":{"titulo":"Termos de Uso do FLUI","versao":"1","atualizacao":"1º de outubro de 2026","blocos":[{"p":"Ao tocar em <b>\"Aceitar e continuar\"</b>, você declara que leu e concorda com estes Termos de Uso e com a <b>Política de Privacidade</b> do FLUI. Se não concordar, não use o aplicativo."},{"h":"1. O que é o FLUI"},{"p":"O FLUI é um aplicativo de <b>planejamento financeiro pessoal</b>. Ele ajuda você a organizar entradas, despesas, cofrinhos, reserva de segurança, metas, financiamentos e as faturas do cartão de crédito, e mostra resumos, gráficos e projeções a partir do que <b>você</b> registra."},{"h":"2. O que o FLUI não é"},{"li":["O FLUI <b>não é um banco</b> nem uma instituição financeira. Ele <b>não movimenta dinheiro</b>, não faz pagamentos, não acessa a sua conta bancária e não se conecta ao seu banco.","O FLUI <b>não é consultoria financeira, contábil, jurídica ou de investimentos</b>. Resumos, alertas, percentuais e projeções são <b>informativos</b> e servem para ajudar na sua organização. <b>As decisões sobre o seu dinheiro são sempre suas.</b>"]},{"h":"3. Seus dados e o backup"},{"li":["Os dados que você registra ficam <b>guardados no seu aparelho</b>. A VoceFlui <b>não recebe, não vê e não guarda</b> esses dados.","<b>O backup é responsabilidade sua.</b> Se você desinstalar o aplicativo, limpar os dados dele, perder ou trocar o aparelho <b>sem ter um backup</b>, os dados <b>serão perdidos</b> e a VoceFlui não terá como recuperá-los.","O FLUI oferece duas formas de backup: o <b>arquivo de backup</b>, que você salva onde quiser, e, se você quiser, o <b>backup no Google Drive da sua própria conta Google</b>. Os detalhes estão na Política de Privacidade."]},{"h":"4. Leitura das faturas do cartão"},{"li":["A importação da fatura em PDF é feita <b>no seu aparelho</b>, de forma automática, e <b>pode conter erros</b> (por exemplo, quando o banco muda o formato da fatura).","O FLUI confere as somas antes de importar, mas <b>cabe a você conferir</b> os valores com a fatura original.","A leitura de faturas de bancos sem leitor próprio é <b>experimental</b>.","Quando você escolhe <b>\"Importar com ajuste\"</b>, a diferença entre as compras lidas e o total da fatura vira uma linha de ajuste; a despesa lançada é o total impresso na fatura."]},{"h":"5. Cálculos e projeções"},{"p":"Saldos, percentuais da renda, projeções de parcelas e metas são <b>calculados a partir dos dados que você informou</b> e dependem deles estarem corretos e completos. São <b>estimativas</b>, não garantias."},{"h":"6. Avisos (notificações)"},{"p":"Os avisos são <b>opcionais</b>, criados e mostrados no próprio aparelho. O Android ou o fabricante do celular podem atrasar ou bloquear avisos (por exemplo, por economia de bateria). Não dependa somente deles para pagar contas em dia."},{"h":"7. Uso permitido"},{"p":"Você pode usar o FLUI para <b>organizar as suas finanças pessoais e familiares</b>. Não é permitido copiar, modificar, descompilar ou redistribuir o aplicativo, nem usá-lo para atividades ilegais."},{"h":"8. Disponibilidade e responsabilidade"},{"li":["O FLUI é oferecido <b>no estado em que se encontra</b>. A VoceFlui se esforça para manter o aplicativo correto e funcionando, mas <b>não garante</b> que ele estará livre de erros ou disponível o tempo todo.","Na máxima extensão permitida pela lei, a VoceFlui <b>não se responsabiliza</b> por perdas decorrentes de: falta de backup; decisões financeiras tomadas com base no aplicativo; dados digitados ou importados incorretamente e não conferidos; falhas do aparelho, do sistema ou de serviços de terceiros (como o Google Drive).","Nada nestes termos limita direitos que a lei garante a você, inclusive os do <b>Código de Defesa do Consumidor</b>."]},{"h":"9. Serviços de terceiros"},{"p":"O backup no Google Drive usa serviços do <b>Google</b>, sujeitos aos termos e à política de privacidade do Google. O uso é <b>opcional</b> e pode ser desligado a qualquer momento."},{"h":"10. Propriedade intelectual"},{"p":"O nome FLUI, o logotipo, o desenho das telas e o código do aplicativo pertencem à VoceFlui (ou são usados com permissão, como as bibliotecas de código aberto, cada uma com a sua licença)."},{"h":"11. Assinatura <i>(texto provisório: as condições comerciais ainda serão definidas)</i>"},{"li":["O FLUI poderá ser oferecido mediante <b>assinatura</b>, contratada e cobrada <b>pela loja de aplicativos</b> (por exemplo, Google Play), com os preços e períodos informados na própria loja antes da contratação.","A assinatura pode ter <b>renovação automática</b>, conforme as regras da loja, e pode ser <b>cancelada a qualquer momento</b> nas configurações de assinatura da loja; o cancelamento vale para o período seguinte.","Pedidos de reembolso seguem as regras da loja e a lei, inclusive o <b>direito de arrependimento</b> do Código de Defesa do Consumidor, quando aplicável.","Se a assinatura terminar, <b>os seus dados continuam no seu aparelho</b> e no seu backup."]},{"h":"12. Mudanças nestes termos"},{"p":"Estes termos podem ser atualizados. Quando a mudança for relevante, o FLUI mostrará a nova versão e pedirá <b>um novo aceite</b> antes de continuar."},{"h":"13. Lei aplicável"},{"p":"Estes termos seguem as <b>leis do Brasil</b>. Eventuais questões serão resolvidas no foro do domicílio do usuário, como garante a lei de defesa do consumidor."},{"h":"14. Contato"},{"p":"Dúvidas, sugestões ou problemas: <b>fluiapps@gmail.com</b>"}]},"politica":{"titulo":"Política de Privacidade do FLUI","versao":"2 (com backup opcional no Google Drive)","atualizacao":"1º de outubro de 2026","blocos":[{"h":"Em resumo"},{"li":["<b>A VoceFlui não coleta nenhum dado seu.</b> Tudo o que você registra fica <b>no seu aparelho</b>.","<b>Não existe conta no FLUI</b>, nem cadastro, anúncios, rastreadores ou ferramentas de análise de uso.","O <b>backup no Google Drive é opcional</b>: se você ligar, a cópia vai <b>direto do seu aparelho para o Google Drive da sua conta Google</b>, numa pasta reservada ao app. <b>A VoceFlui não tem servidor e não vê esses dados.</b>","O app usa a internet <b>somente</b> para esse backup no Google Drive. <b>Sem ligar o backup no Drive, nada sai do aparelho</b>, e o app funciona inteiro em modo avião."]},{"h":"1. O que o FLUI faz com as suas informações"},{"p":"O FLUI é um aplicativo para organizar suas finanças: entradas, despesas, cofrinhos, reserva de segurança, metas, financiamentos e faturas do cartão. Os dados que você digita ou importa (valores, descrições, categorias, nomes de pessoas ou contas, compras das faturas) ficam <b>guardados no armazenamento interno do próprio aplicativo</b>, no seu aparelho."},{"p":"Esses dados <b>não são enviados para a VoceFlui</b>. Nós <b>não temos acesso</b> a eles e não conseguimos vê-los, recuperá-los nem apagá-los por você."},{"h":"2. Backup no Google Drive (opcional)"},{"p":"Se você tocar em <b>\"Conectar conta Google\"</b> (Configurações, aba Backup):"},{"li":["<b>O que é acessado:</b> o FLUI pede ao Google permissão <b>somente</b> para a <b>pasta reservada ao aplicativo</b> no seu Google Drive. Com essa permissão, o FLUI <b>não vê</b> seus outros arquivos, fotos ou documentos do Drive. O app também mostra o <b>e-mail da conta</b> conectada, para você saber em qual conta está o backup; esse e-mail fica só no aparelho.","<b>O que é enviado:</b> o <b>arquivo de backup do FLUI</b> (com todos os dados que você registrou e as preferências do app), do seu aparelho <b>direto para o Google</b>. A VoceFlui não tem servidor no meio do caminho.","<b>Quando:</b> quando você toca em \"Fazer backup agora\" e, se você ligar o <b>backup automático</b>, de tempos em tempos quando houver mudanças e conexão.","<b>Como fica guardado:</b> pelo Google, na sua conta, segundo a Política de Privacidade do Google (https://policies.google.com/privacy). O arquivo <b>não é criptografado pelo FLUI</b>; a proteção é a da sua conta Google (use senha forte e verificação em duas etapas).","<b>Como parar e apagar:</b> toque em <b>\"Desconectar\"</b> no app; para apagar as cópias, use <b>\"Apagar backups do Google Drive\"</b> no app ou, no Google Drive, em Configurações → Gerenciar apps → FLUI → \"Excluir dados ocultos do app\". Você também pode retirar o acesso em myaccount.google.com/permissions (https://myaccount.google.com/permissions)."]},{"h":"3. O que o FLUI não faz"},{"li":["Não cria conta e não pede telefone, CPF ou documentos.","Não usa a sua localização, a câmera, o microfone nem os seus contatos. Só lê um arquivo seu quando <b>você escolhe</b> importar uma fatura em PDF ou restaurar um backup.","Não mostra anúncios e não usa publicidade de terceiros.","Não usa Google Analytics, Firebase ou qualquer outro serviço de análise ou de relatório de erros.","Não vende, aluga nem compartilha informações com ninguém."]},{"h":"4. Permissões do aplicativo (Android)"},{"li":["<b>Internet</b>: <b>Somente</b> para o login com Google e o backup no Google Drive, quando você liga. Sem isso ligado, nada é enviado","<b>Notificações</b>: Mostrar os avisos que você ligar (vencimento de parcela, competência aberta, fim do mês, lembrete de backup). Por padrão, os textos não trazem valores nem nomes","<b>Receber aviso de que o aparelho reiniciou</b>: Reprogramar os avisos depois que o celular é reiniciado","<b>Manter o aparelho ativo</b>: Permite que o Android entregue o aviso na hora programada"]},{"h":"5. Arquivo de backup e exportação (você no controle)"},{"p":"O FLUI também gera um <b>arquivo de backup</b> e exporta <b>planilhas (CSV)</b> e <b>relatórios em PDF</b> quando <b>você toca no botão</b>. O arquivo vai para o menu de compartilhamento do aparelho, e <b>você escolhe</b> o destino."},{"li":["Esses arquivos contêm <b>todos os dados</b> que você registrou e <b>não são criptografados</b>. Guarde-os em local seguro.","Depois que você compartilha o arquivo, o destino escolhido passa a cuidar dele, segundo as regras dele.","O backup automático do Android está <b>desligado</b> para este app, de propósito. Para trocar de aparelho, use o arquivo de backup ou o backup no Google Drive."]},{"h":"6. Termos de Uso"},{"p":"O registro de que você aceitou os <b>Termos de Uso</b> (versão e data/hora) fica <b>somente no seu aparelho</b>."},{"h":"7. Por quanto tempo os dados ficam guardados"},{"li":["<b>No aparelho:</b> até você apagá-los (Configurações, aba Backup, \"Zona de risco\", \"Resetar todos os dados\") ou desinstalar o app.","<b>No Google Drive (se você usar):</b> o FLUI mantém os <b>últimos 10 backups</b> e apaga os mais antigos. Ficam lá até você apagá-los como descrito no item 2."]},{"h":"8. Versão para navegador (iPhone e computador)"},{"p":"O FLUI também pode ser usado em um navegador e instalado na tela inicial. Os dados ficam <b>no armazenamento do próprio navegador</b>, no seu aparelho, e também <b>não são enviados</b> para nós. A página é hospedada no <b>GitHub Pages</b>, que pode guardar registros técnicos comuns de acesso (como a data e o endereço IP de quem baixa os arquivos da página), segundo a política do GitHub. Esses registros <b>não incluem</b> os seus dados financeiros. O backup no Google Drive funciona do mesmo jeito descrito no item 2."},{"h":"9. Segurança"},{"p":"A segurança dos dados depende também do <b>bloqueio de tela</b> do seu aparelho e da <b>proteção da sua conta Google</b> (se usar o backup no Drive). Recomendamos bloqueio por senha, digital ou reconhecimento facial, manter o sistema atualizado e ativar a verificação em duas etapas no Google."},{"h":"10. Seus direitos (LGPD)"},{"p":"A Lei Geral de Proteção de Dados (Lei 13.709/2018) garante a você direitos sobre os seus dados pessoais, como acesso, correção e exclusão. Como a VoceFlui <b>não recebe nem armazena</b> os seus dados, <b>não há nada nos nossos sistemas</b> para acessar, corrigir ou excluir: você tem controle total no aplicativo, no seu aparelho e na sua conta Google. Em caso de dúvida, escreva para <b>fluiapps@gmail.com</b>."},{"h":"11. Crianças"},{"p":"O FLUI é um aplicativo de finanças pessoais e <b>não é direcionado a crianças</b>."},{"h":"12. Bibliotecas e serviços de terceiros"},{"p":"O aplicativo inclui bibliotecas de código aberto (para gerar PDF, ler PDF, agendar avisos e fazer o login com Google). As de PDF e de avisos funcionam <b>inteiramente dentro do aparelho</b>. A de login e o backup usam os <b>serviços do Google</b>, somente quando você liga o backup no Drive."},{"h":"13. Mudanças nesta política"},{"p":"Se o FLUI mudar de modo que afete a sua privacidade, esta política será atualizada <b>antes</b>, a data no topo será alterada e o app pedirá um novo aceite."},{"h":"14. Contato"},{"p":"Dúvidas sobre esta política: <b>fluiapps@gmail.com</b>"}]}};/*DOCS-FIM*/
 (function(){
   var VERSAO_TERMOS=1, CHAVE='flui_termos_v1';
   function lerAceite(){ try{ var o=JSON.parse(localStorage.getItem(CHAVE)||'null'); return (o && o.versao>=VERSAO_TERMOS) ? o : null; }catch(e){ return null; } }
@@ -7267,7 +7432,7 @@ window.FLUI_BRIDGE={
       '<div class="termos-cab"><span class="flui-wordmark flui-grad-text">FLU<em>I</em></span><h2 id="termosTitulo">Antes de começar</h2><p>Leia o resumo e os termos. Para usar o FLUI, é preciso aceitar.</p></div>'+
       '<ul class="termos-resumo">'+
         '<li>O FLUI organiza o seu <b>planejamento financeiro pessoal</b>. Ele não é banco nem consultoria: as decisões sobre o seu dinheiro são suas.</li>'+
-        '<li>Os seus dados ficam <b>no seu aparelho</b>. A FluiApps não recebe nem vê nada.</li>'+
+        '<li>Os seus dados ficam <b>no seu aparelho</b>. A VoceFlui não recebe nem vê nada.</li>'+
         '<li><b>Faça backup.</b> Sem backup, trocar ou perder o celular apaga os dados. Você pode usar o arquivo de backup ou, se quiser, o Google Drive da sua conta.</li>'+
         '<li>A leitura automática das faturas pode errar: <b>confira os valores</b>.</li>'+
         '<li>Os textos completos estão logo abaixo.</li>'+
@@ -7276,7 +7441,7 @@ window.FLUI_BRIDGE={
       '<details class="termos-doc"><summary>Ler a Política de Privacidade</summary><div class="termos-texto">'+htmlDoc(D.politica)+'</div></details>'+
       '<label class="termos-check"><input type="checkbox" id="termosLi"><span>Li e aceito os Termos de Uso e a Política de Privacidade</span></label>'+
       '<button type="button" class="btn" id="termosAceitar" disabled>Aceitar e continuar</button>'+
-      '<div class="termos-rodape">FluiApps · fluiapps@gmail.com</div></div>';
+      '<div class="termos-rodape">VoceFlui · fluiapps@gmail.com</div></div>';
     document.body.appendChild(ov);
     var cb=ov.querySelector('#termosLi'), bt=ov.querySelector('#termosAceitar');
     cb.addEventListener('change', function(){ bt.disabled=!cb.checked; });
